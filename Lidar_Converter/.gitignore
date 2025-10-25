@@ -1,0 +1,151 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Input/Output data files
+input/
+output/
+sample_data/
+SDK _testing/sample_data/
+SDK_Testing/sample_data/
+data/
+datasets/
+*.pcap
+*.las
+*.laz
+*.ply
+*.pcd
+*.xyz
+*.txt
+*.csv
+*.bin
+test_output.*
+
+# Additional unnecessary files
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.dll
+*.exe
+*.msi
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+*.rar
+*.7z
+*.iso
+*.img
+*.dmg
+*.pkg
+*.app
+
+# Documentation and config files that might contain sensitive info
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+config.ini
+secrets.json
+.env
+.env.local
+.env.production
+
+# Cache and temporary files
+.cache/
+*.cache
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+*.rej
+
+# System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Profiling
+.prof
+
+# Logs
+*.log
+logs/
+
+# CloudCompare - exclude large binaries and executables
+CloudCompare/
+CloudCompare/*
+
+# Results and temp directories
+results/
+temp/
+tmp/
+
+# SDK testing temporary files
+SDK _testing/__pycache__/
+SDK _testing/*.las
+SDK _testing/test_output.*
+SDK_Testing/__pycache__/
+SDK_Testing/*.las
+SDK_Testing/test_output.*
+
+# Hesai SDK specific
+hesai_sdk/build/
+hesai_sdk/.vscode/
