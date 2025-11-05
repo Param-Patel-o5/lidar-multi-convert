@@ -151,3 +151,35 @@ SDK_Testing/test_output.*
 Output/
 Sample_Data/
 hesai_sdk/
+
+# Kiro IDE configuration and specs
+.kiro/
+
+# Virtual environments (additional patterns)
+venv*/
+.venv/
+.virtualenv/
+
+# CloudCompare installation and binaries
+CloudCompare/
+CloudCompare*/
+*.exe
+*.msi
+
+# Data directories
+data/
+Data/
+sample_data/
+Sample_Data/
+output/
+Output/
+converted_output/
+test_data/
+Test_Data/
+
+# Documentation and reference files
+LiDAR Vendor Detection Guide*.pdf
+lidar_formats_detailed.csv
+*.pdf
+reference_docs/
+docs/temp/

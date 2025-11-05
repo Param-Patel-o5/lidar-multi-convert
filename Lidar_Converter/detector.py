@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import logging
 
+# Module-level logger (for backward compatibility)
 logger = logging.getLogger(__name__)
 
 # PCAP parsing dependency
@@ -33,9 +34,13 @@ except ImportError:
 else:
     DPKT_AVAILABLE = True
 
-class LidarVendorDetector:
+class VendorDetector:
     """
-    Detects LiDAR vendor from file analysis using modern packet-structure-based methods.
+    Stateless class for detecting LiDAR vendor from file analysis.
+    
+    This class encapsulates all vendor detection logic using modern
+    packet-structure-based methods. It is designed to be instantiated
+    once and reused for detecting multiple files.
     
     Uses multiple detection methods with weighted scoring:
     - UDP Port Detection (weight: 3.5) - Most reliable for PCAP files
@@ -46,10 +51,29 @@ class LidarVendorDetector:
     - File Extension (weight: 0.5) - Lower confidence, can be misleading
     
     Requires dpkt library for PCAP parsing (install with: pip install dpkt).
+    
+    Example:
+        detector = VendorDetector()
+        result = detector.detect_vendor("file.pcap")
+        if result["success"]:
+            print(f"Detected: {result['vendor_name']} (confidence: {result['confidence']})")
     """
     
-    def __init__(self):
-        # Define vendor signatures and detection patterns
+    def __init__(self, enable_cache: bool = False, cache_ttl: int = 3600):
+        """
+        Initialize vendor detector with optional caching.
+        
+        Args:
+            enable_cache: If True, cache detection results for performance
+            cache_ttl: Cache time-to-live in seconds (default: 1 hour)
+        """
+        # Detection cache (optional)
+        self.enable_cache = enable_cache
+        self.cache_ttl = cache_ttl
+        self._detection_cache = {}  # Maps file_path -> (result, timestamp)
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        
+        # Define vendor signatures registry
         self.vendor_patterns = {
             "ouster": {
                 "extensions": [".pcap"],
@@ -94,7 +118,7 @@ class LidarVendorDetector:
             }
         }
     
-    def detect_vendor(self, file_path: str) -> Tuple[Optional[str], Dict[str, Any]]:
+    def detect_vendor(self, file_path: str) -> Dict[str, Any]:
         """
         Detect the vendor of a LiDAR file using multiple methods and scoring.
         
@@ -110,29 +134,97 @@ class LidarVendorDetector:
             file_path: Path to the LiDAR file
             
         Returns:
-            Tuple of (vendor_name, detection_info)
+            dict: Detection result containing:
+                - "success": bool - Whether vendor was detected
+                - "vendor_name": str - Detected vendor (lowercase) or None
+                - "confidence": float - Detection confidence (0.0-1.0)
+                - "file_signature": str - Hex/magic bytes that identified vendor
+                - "message": str - Human-readable detection message
+                - "metadata": dict - Optional vendor-specific metadata
+                - "file_path": str - Input file path
+                - "file_size": int - File size in bytes
+                - "error": str - Error message if detection failed
         """
+        file_path_str = str(file_path)
         file_path = Path(file_path)
         
+        # Check cache if enabled
+        if self.enable_cache:
+            import time
+            if file_path_str in self._detection_cache:
+                cached_result, cache_time = self._detection_cache[file_path_str]
+                if time.time() - cache_time < self.cache_ttl:
+                    self.logger.debug(f"Returning cached detection result for: {file_path_str}")
+                    return cached_result
+        
+        # Initialize result dict
+        result = {
+            "success": False,
+            "vendor_name": None,
+            "confidence": 0.0,
+            "file_signature": None,
+            "message": "",
+            "metadata": {},
+            "file_path": str(file_path),
+            "file_size": 0,
+            "error": None
+        }
+        
+        # Validate file exists
         if not file_path.exists():
-            return None, {"error": "File not found"}
+            result["error"] = "File not found"
+            result["message"] = f"File does not exist: {file_path}"
+            self.logger.error(result["error"])
+            return result
+        
+        # Validate file is readable
+        try:
+            file_size = file_path.stat().st_size
+            result["file_size"] = file_size
+            
+            if file_size == 0:
+                result["error"] = "File is empty"
+                result["message"] = "Cannot detect vendor from empty file"
+                self.logger.error(result["error"])
+                return result
+                
+        except PermissionError:
+            result["error"] = "Permission denied"
+            result["message"] = f"Cannot read file: {file_path}"
+            self.logger.error(result["error"])
+            return result
+        except Exception as e:
+            result["error"] = f"File access error: {e}"
+            result["message"] = f"Cannot access file: {file_path}"
+            self.logger.error(result["error"])
+            return result
+        
+        # Log detection attempt
+        self.logger.info(f"Detecting vendor for: {file_path} (size: {file_size} bytes)")
         
         # Early return optimization for RIEGL proprietary format
         if file_path.suffix.lower() == ".rxp":
-            detection_info = {
-                "file_path": str(file_path),
-                "file_size": file_path.stat().st_size,
-                "file_extension": file_path.suffix.lower(),
-                "detection_methods": ["riegl_proprietary_format"],
-                "vendor_scores": {"riegl": 10.0},
-                "confidence": 10.0
-            }
-            logger.info("RIEGL proprietary format detected (.rxp)")
-            return "riegl", detection_info
+            result.update({
+                "success": True,
+                "vendor_name": "riegl",
+                "confidence": 1.0,
+                "file_signature": "RIEGL proprietary format (.rxp)",
+                "message": "Detected RIEGL proprietary format from file extension",
+                "metadata": {
+                    "file_extension": file_path.suffix.lower(),
+                    "detection_method": "file_extension"
+                }
+            })
+            self.logger.info(f"RIEGL proprietary format detected: {file_path}")
+            if self.enable_cache:
+                import time
+                self._detection_cache[file_path_str] = (result.copy(), time.time())
+            return result
         
+        # Internal detection info for scoring
         detection_info = {
             "file_path": str(file_path),
-            "file_size": file_path.stat().st_size,
+            "file_size": file_size,
             "file_extension": file_path.suffix.lower(),
             "detection_methods": [],
             "vendor_scores": {},
@@ -184,15 +276,63 @@ class LidarVendorDetector:
             best_vendor = max(vendor_scores, key=vendor_scores.get)
             best_score = vendor_scores[best_vendor]
             
-            # Only return a vendor if confidence is above threshold (raised from 1.0 to 2.0)
-            if best_score >= 2.0:  # Minimum confidence threshold
-                detection_info["confidence"] = best_score
-                detection_info["detection_methods"].append(f"scored_detection_{best_vendor}")
-                logger.info(f"Detected vendor: {best_vendor} (confidence: {best_score:.2f})")
-                return best_vendor, detection_info
+            # Normalize confidence to 0.0-1.0 range (scale by max possible score)
+            # Max possible score: 3.5 (UDP) + 3.0 (packet struct) + 3.0 (magic) + 2.5 (companion) + 2.0 (size) + 0.5 (ext) = 14.5
+            max_possible_score = 14.5
+            normalized_confidence = min(best_score / max_possible_score, 1.0)
+            
+            # Only return a vendor if confidence is above threshold (2.0 raw score ≈ 0.14 normalized)
+            if best_score >= 2.0:
+                # Extract file signature from detection info
+                file_signature = None
+                if detection_info.get("magic_bytes_found"):
+                    file_signature = f"Magic bytes: {detection_info['magic_bytes_found']}"
+                elif detection_info.get("udp_ports_ouster") or detection_info.get("udp_ports_velodyne") or detection_info.get("udp_ports_hesai"):
+                    ports = detection_info.get(f"udp_ports_{best_vendor}", [])
+                    file_signature = f"UDP ports: {ports}"
+                elif detection_info.get(f"packet_structure_matches_{best_vendor}"):
+                    file_signature = "Packet structure match"
+                else:
+                    file_signature = f"File extension: {file_path.suffix}"
+                
+                # Extract metadata
+                metadata = {
+                    "file_extension": file_path.suffix.lower(),
+                    "detection_methods": detection_info.get("detection_methods", []),
+                    "vendor_scores": {k: v for k, v in vendor_scores.items() if v > 0},
+                    "best_score": best_score
+                }
+                
+                result.update({
+                    "success": True,
+                    "vendor_name": best_vendor,
+                    "confidence": normalized_confidence,
+                    "file_signature": file_signature,
+                    "message": f"Detected {best_vendor} LiDAR file (confidence: {normalized_confidence:.2%})",
+                    "metadata": metadata
+                })
+                
+                self.logger.info(f"Detected vendor: {best_vendor} (confidence: {normalized_confidence:.2%}, raw score: {best_score:.2f})")
+                
+                if self.enable_cache:
+                    import time
+                    self._detection_cache[file_path_str] = (result.copy(), time.time())
+                
+                return result
         
-        logger.warning("No vendor detected with sufficient confidence")
-        return None, detection_info
+        # No vendor detected
+        result.update({
+            "success": False,
+            "message": "No vendor detected with sufficient confidence",
+            "error": "Vendor detection failed - file may be unsupported or corrupted"
+        })
+        self.logger.warning(f"No vendor detected for: {file_path}")
+        
+        if self.enable_cache:
+            import time
+            self._detection_cache[file_path_str] = (result.copy(), time.time())
+        
+        return result
     
     def _check_extension(self, file_path: Path, detection_info: Dict) -> Optional[str]:
         """Check if file extension matches known vendor patterns."""
@@ -663,23 +803,29 @@ class LidarVendorDetector:
 
 def detect_lidar_vendor(file_path: str) -> Tuple[Optional[str], Dict[str, Any]]:
     """
-    Convenience function to detect LiDAR vendor.
+    Convenience function to detect LiDAR vendor (backward compatibility).
     
     Args:
         file_path: Path to the LiDAR file
         
     Returns:
-        Tuple of (vendor_name, detection_info)
+        Tuple of (vendor_name, detection_info) for backward compatibility
     """
-    detector = LidarVendorDetector()
-    return detector.detect_vendor(file_path)
+    detector = VendorDetector()
+    result = detector.detect_vendor(file_path)
+    
+    # Convert new dict format to old tuple format
+    if result.get("success", False):
+        return result.get("vendor_name"), result
+    else:
+        return None, result
 
 def main():
     """Command-line interface for vendor detection."""
     import argparse
     
     parser = argparse.ArgumentParser(description="LiDAR Vendor Detection Tool")
-    parser.add_argument("file_path", help="Path to LiDAR file")
+    parser.add_argument("file_path", nargs="?", help="Path to LiDAR file")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument("--list-vendors", action="store_true", help="List supported vendors")
     
@@ -689,7 +835,7 @@ def main():
         logging.basicConfig(level=logging.INFO)
     
     if args.list_vendors:
-        detector = LidarVendorDetector()
+        detector = VendorDetector()
         print("Supported vendors:")
         for vendor in detector.get_supported_vendors():
             info = detector.get_vendor_info(vendor)
@@ -697,14 +843,18 @@ def main():
             print(f"    Extensions: {info['extensions']}")
         return 0
     
+    if not args.file_path:
+        parser.error("file_path is required when not using --list-vendors")
+    
     vendor, info = detect_lidar_vendor(args.file_path)
     
     if vendor:
         print(f"✅ Detected vendor: {vendor}")
-        print(f"Detection methods: {', '.join(info.get('detection_methods', []))}")
+        print(f"Confidence: {info.get('confidence', 0):.2%}")
+        print(f"File signature: {info.get('file_signature', 'N/A')}")
     else:
         print("❌ No vendor detected")
-        print(f"Detection info: {info}")
+        print(f"Error: {info.get('error', 'Unknown error')}")
     
     return 0 if vendor else 1
 
