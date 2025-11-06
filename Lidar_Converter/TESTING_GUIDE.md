@@ -2,23 +2,42 @@
 
 ## Quick Test Commands
 
-### 1. Test Detection (Works without SDK)
+### 1. Test System Health
 
-This will work even if SDKs aren't installed:
+Check overall system status and vendor support:
 
 ```bash
+python cli.py health
+```
+
+### 2. Test Detection (Works without vendor SDKs)
+
+This will work even if vendor SDKs aren't installed:
+
+```bash
+# Test Ouster detection
 python cli.py detect "Sample_Data/ouster/OS-0-128_v3.0.1_1024x10_20230216_172749-000.pcap"
+
+# Test Velodyne detection (if you have Velodyne files)
+python cli.py detect "Sample_Data/velodyne/velodyne_sample.pcap"
+
+# Test with any PCAP file
+python cli.py detect "your_lidar_file.pcap"
 ```
 
-### 2. Install Ouster SDK
+### 3. Install Vendor SDKs (Optional)
 
-For conversion to work, you need to install the Ouster SDK:
+For optimal conversion performance, install vendor SDKs:
 
 ```bash
+# Ouster SDK (for Ouster sensors)
 pip install ouster-sdk
+
+# Velodyne: No SDK required (uses dpkt parsing)
+# dpkt is already included in requirements.txt
 ```
 
-### 3. Test Conversion with Limited Scans
+### 4. Test Conversion with Limited Scans
 
 For testing with large files, use `--max-scans` to limit processing time:
 
@@ -45,7 +64,24 @@ python cli.py convert "Sample_Data/ouster/OS-0-128_v3.0.1_1024x10_20230216_17274
   -c "Sample_Data/ouster/OS-0-128_v3.0.1_1024x10_20230216_172749.json"
 ```
 
-### 4. Test with Validation
+### 5. Test Velodyne Conversion
+
+If you have Velodyne PCAP files:
+
+```bash
+# Quick Velodyne test (100 scans)
+python cli.py convert "velodyne_data.pcap" ^
+  -o Output/test_velodyne_100.las ^
+  --max-scans 100 ^
+  --sensor-model "VLP-16"
+
+# Velodyne conversion with auto-detection
+python cli.py convert "velodyne_data.pcap" ^
+  -o Output/test_velodyne_auto.las ^
+  --max-scans 100
+```
+
+### 6. Test with Validation
 
 Add `--validate` to check the output file:
 
@@ -57,7 +93,7 @@ python cli.py convert "Sample_Data/ouster/OS-0-128_v3.0.1_1024x10_20230216_17274
   -c "Sample_Data/ouster/OS-0-128_v3.0.1_1024x10_20230216_172749.json"
 ```
 
-### 5. Verbose Output for Debugging
+### 7. Verbose Output for Debugging
 
 Use `--verbose` and `--log-level DEBUG` to see detailed progress:
 

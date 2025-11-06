@@ -4,17 +4,21 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 
 ## Features
 
-- 🔍 **Automatic Sensor Detection**: Identifies LiDAR sensor manufacturer from PCAP data
-- 🔄 **Multi-Manufacturer Support**: Currently supports Ouster sensors, with plans for Velodyne and others
+- 🔍 **Automatic Vendor Detection**: Multi-method detection using UDP ports, packet structure, magic bytes, and companion files
+- 🔄 **Multi-Vendor Support**: Supports Ouster and Velodyne sensors with unified conversion pipeline
 - 📦 **Standardized Output**: Converts to LAS/LAZ formats compatible with CloudCompare, PDAL, and other tools
-- ⚡ **Optimized Processing**: Fast conversion with configurable scan limits
-- 🛠️ **Easy Integration**: Simple Python API for integration into larger projects
+- ⚡ **Optimized Processing**: Fast conversion with configurable scan limits and streaming PCAP processing
+- 🛠️ **Easy Integration**: Simple Python API and comprehensive CLI for automation
+- 🏥 **Health Monitoring**: Built-in health checks and SDK validation
+- 📊 **Batch Processing**: Convert multiple files efficiently with progress tracking
 
 ## Supported Sensors
 
-- ✅ **Ouster**: OS-0, OS-1, OS-2 series sensors
-- 🚧 **Velodyne**: VLP-16, VLP-32, HDL-32E, HDL-64E (planned)
+- ✅ **Ouster**: OS-0, OS-1, OS-2, OS-Dome series (16/32/64/128 channels)
+- ✅ **Velodyne**: VLP-16, VLP-32C, HDL-32E, HDL-64E, VLS-128
+- 🚧 **Hesai**: PandarXT, Pandar64, Pandar40P (planned)
 - 🚧 **Livox**: Avia, Horizon, Tele-15 (planned)
+- 🚧 **RIEGL**: VUX series, miniVUX (planned)
 
 ## Installation
 
@@ -27,7 +31,7 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/lidar-converter.git
+git clone https://github.com/Param-Patel-o5/lidar-converter.git
 cd lidar-converter
 ```
 
@@ -42,52 +46,74 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+4. Verify installation:
+```bash
+python Lidar_Converter/cli.py health
+```
+
 ## Quick Start
 
-### Convert Ouster PCAP to LAS
+### Automatic Conversion (Any Supported Vendor)
 
 ```python
-from lidar_converter import LidarConverter
+from Lidar_Converter.converter import LiDARConverter
 
 # Initialize converter
-converter = LidarConverter()
+converter = LiDARConverter()
 
-# Convert PCAP file
-converter.convert_pcap_to_las(
-    pcap_path="data/sample.pcap",
-    json_path="data/sample.json",
+# Automatic vendor detection and conversion
+result = converter.convert(
+    input_path="data.pcap",
     output_path="output.las",
-    max_scans=1000
+    max_scans=1000  # Optional: limit for faster processing
 )
+
+if result["success"]:
+    print(f"Converted {result['points_converted']} points from {result['vendor']}")
+else:
+    print(f"Error: {result['message']}")
 ```
 
 ### Command Line Usage
 
 ```bash
-# Convert with default settings
-python -m lidar_converter.cli convert data/sample.pcap data/sample.json
+# Check system health
+python Lidar_Converter/cli.py health
 
-# Convert with custom parameters
-python -m lidar_converter.cli convert data/sample.pcap data/sample.json --output result.las --max-scans 500
+# Detect vendor automatically
+python Lidar_Converter/cli.py detect data.pcap
+
+# Convert with automatic vendor detection
+python Lidar_Converter/cli.py convert data.pcap -o output.las --max-scans 1000
+
+# Batch convert multiple files
+python Lidar_Converter/cli.py batch ./data_dir -o ./output_dir
+
+# Convert with validation
+python Lidar_Converter/cli.py convert data.pcap -o output.las --validate
 ```
 
 ## Project Structure
 
 ```
-lidar_converter/
-├── lidar_converter/          # Main package
+lidar-converter/
+├── Lidar_Converter/          # Main package
 │   ├── __init__.py
 │   ├── cli.py               # Command line interface
-│   ├── converters.py        # Core conversion logic
-│   ├── detector.py          # Sensor detection
+│   ├── converter.py         # Main conversion orchestrator
+│   ├── detector.py          # Multi-method vendor detection
 │   ├── utils.py             # Utility functions
-│   └── wrappers/            # Manufacturer-specific wrappers
-│       ├── ouster.py        # Ouster SDK wrapper
-│       └── velodyne.py      # Velodyne SDK wrapper (planned)
-├── tests/                   # Test files
-├── examples/                # Example scripts
+│   ├── Wrappers/            # Vendor-specific wrappers
+│   │   ├── __init__.py
+│   │   ├── base_wrapper.py  # Abstract base class
+│   │   ├── ouster_wrapper.py    # Ouster SDK wrapper
+│   │   ├── velodyne_wrapper.py  # Velodyne wrapper (dpkt-based)
+│   │   └── README.md        # Wrapper documentation
+│   ├── CLI_README.md        # CLI usage guide
+│   ├── TESTING_GUIDE.md     # Testing instructions
+│   └── pyproject.toml       # Package configuration
 ├── requirements.txt         # Python dependencies
-├── pyproject.toml          # Project configuration
+├── .gitignore              # Git ignore rules
 └── README.md               # This file
 ```
 
@@ -99,15 +125,24 @@ lidar_converter/
 python -m pytest tests/
 ```
 
-### SDK Testing
+### Testing
 
-The `SDK _testing/` directory contains scripts for testing individual manufacturer SDKs:
+See `Lidar_Converter/TESTING_GUIDE.md` for comprehensive testing instructions.
+
+Quick test commands:
 
 ```bash
-# Test Ouster SDK
-cd "SDK _testing"
-python for_ouster.py
-python pcap_to_las.py --max-scans 100 --output test.las
+# Test system health
+python Lidar_Converter/cli.py health
+
+# Test vendor detection
+python Lidar_Converter/cli.py detect sample.pcap
+
+# Test conversion with limited scans (fast)
+python Lidar_Converter/cli.py convert sample.pcap -o test.las --max-scans 100
+
+# Run full pipeline test
+python Lidar_Converter/cli.py test sample.pcap
 ```
 
 ## Contributing
@@ -128,13 +163,28 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [LASpy](https://github.com/laspy/laspy) for LAS file handling
 - [CloudCompare](https://www.cloudcompare.org/) for point cloud visualization
 
+## Vendor Detection Methods
+
+The system uses multiple detection methods with weighted confidence scoring:
+
+- **UDP Port Detection** (35% weight): Analyzes destination ports (Ouster: 7502/7503, Velodyne: 2368/2369)
+- **Packet Structure** (30% weight): Checks magic bytes in UDP payload (Ouster: 0x0001, Velodyne: 0xFFEE)
+- **Magic Bytes** (30% weight): File header signatures
+- **Companion Files** (25% weight): Required metadata files (e.g., Ouster JSON)
+- **Packet Size** (20% weight): UDP payload size patterns
+- **File Extension** (5% weight): File extension hints
+
+Minimum confidence threshold: 14% for positive detection.
+
 ## Roadmap
 
-- [ ] Add Velodyne sensor support
-- [ ] Add Livox sensor support
+- [x] ~~Add Velodyne sensor support~~
+- [ ] Add Hesai sensor support (PandarXT, Pandar64)
+- [ ] Add Livox sensor support (Avia, Horizon)
+- [ ] Add RIEGL sensor support (VUX series)
 - [ ] Implement LAZ compression
-- [ ] Add batch processing capabilities
+- [ ] Add PCD and other output formats
 - [ ] Create Docker container
 - [ ] Add CI/CD pipeline
-- [ ] Improve error handling and logging
-- [ ] Add comprehensive documentation
+- [ ] Performance optimizations
+- [ ] Web interface for conversion

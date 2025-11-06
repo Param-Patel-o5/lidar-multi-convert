@@ -42,8 +42,11 @@ lidar-convert convert data.pcap -o output.las
 # Convert to LAZ format with validation
 lidar-convert convert data.pcap -f laz -o output.laz --validate
 
-# Convert with sensor model specified
-lidar-convert convert data.pcap -o output.las --sensor-model "OS1-64"
+# Convert with sensor model specified (Ouster)
+lidar-convert convert ouster_data.pcap -o output.las --sensor-model "OS1-64"
+
+# Convert Velodyne data (automatic detection)
+lidar-convert convert velodyne_data.pcap -o output.las --sensor-model "VLP-16"
 ```
 
 ### 2. Batch Conversion
@@ -72,6 +75,9 @@ lidar-convert batch ./lidar_data -r -o ./converted
 
 # Convert only Velodyne files
 lidar-convert batch ./lidar_data -p "velodyne_*.pcap" -o ./converted
+
+# Convert mixed vendor files (automatic detection)
+lidar-convert batch ./mixed_lidar_data -o ./converted
 ```
 
 ### 3. Detect Vendor
