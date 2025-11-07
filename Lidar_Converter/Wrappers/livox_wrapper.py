@@ -37,9 +37,16 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 import logging
 
-# Livox SDK imports (manual parsing - no official Python SDK)
+# Livox SDK imports
 LIVOX_SDK_AVAILABLE = False
-livox = None
+openpylivox = None
+
+try:
+    from openpylivox import openpylivox
+    LIVOX_SDK_AVAILABLE = True
+except ImportError:
+    LIVOX_SDK_AVAILABLE = False
+    openpylivox = None
 
 # PCAP parsing dependency
 try:
@@ -170,7 +177,32 @@ class LivoxWrapper(BaseVendorWrapper):
             "error": None
         }
         
-        # Method 1: Check for Livox Viewer CLI
+        # Method 1: Check for openpylivox Python library
+        if LIVOX_SDK_AVAILABLE and openpylivox is not None:
+            try:
+                # openpylivox is available
+                version = "installed"
+                try:
+                    import importlib.metadata
+                    version = importlib.metadata.version('openpylivox-pkg')
+                except (ImportError, importlib.metadata.PackageNotFoundError):
+                    try:
+                        import pkg_resources
+                        version = pkg_resources.get_distribution('openpylivox-pkg').version
+                    except:
+                        version = "installed"
+                
+                result.update({
+                    "available": True,
+                    "version": f"openpylivox-{version}",
+                    "method": "openpylivox",
+                    "message": f"openpylivox {version} is available (for live sensor communication)"
+                })
+                return result
+            except Exception as e:
+                self.logger.debug(f"Failed to get openpylivox version: {e}")
+        
+        # Method 2: Check for Livox Viewer CLI
         try:
             # Livox Viewer doesn't have a standard CLI, but check if it's installed
             livox_viewer_paths = [
@@ -191,7 +223,27 @@ class LivoxWrapper(BaseVendorWrapper):
         except Exception as e:
             self.logger.debug(f"Failed to check Livox Viewer: {e}")
         
-        # Method 2: Check pandas for CSV parsing (fallback)
+        # Method 3: Check dpkt for PCAP parsing (primary method)
+        if DPKT_AVAILABLE:
+            try:
+                import importlib.metadata
+                dpkt_version = importlib.metadata.version('dpkt')
+            except (ImportError, importlib.metadata.PackageNotFoundError):
+                try:
+                    import pkg_resources
+                    dpkt_version = pkg_resources.get_distribution('dpkt').version
+                except:
+                    dpkt_version = "installed"
+            
+            result.update({
+                "available": True,
+                "version": f"dpkt-{dpkt_version}",
+                "method": "dpkt_pcap",
+                "message": f"Using dpkt {dpkt_version} for PCAP parsing (primary method)"
+            })
+            return result
+        
+        # Method 4: Check pandas for CSV parsing (fallback)
         if PANDAS_AVAILABLE:
             try:
                 import importlib.metadata
@@ -211,7 +263,7 @@ class LivoxWrapper(BaseVendorWrapper):
             })
             return result
         
-        # Method 3: Check custom SDK path
+        # Method 5: Check custom SDK path
         if self.sdk_path:
             sdk_dir = Path(self.sdk_path)
             if sdk_dir.exists() and sdk_dir.is_dir():
