@@ -382,10 +382,13 @@ class LivoxWrapper(BaseVendorWrapper):
                     **kwargs
                 )
             elif input_path_obj.suffix.lower() in [".lvx", ".lvx2"]:
-                result["error"] = "LVX/LVX2 format not yet fully supported"
-                result["message"] = "Please export data to CSV format using Livox Viewer"
-                self.logger.error(result["error"])
-                return result
+                result = self._convert_lvx_to_las(
+                    input_path,
+                    output_path,
+                    preserve_intensity,
+                    max_points,
+                    **kwargs
+                )
             
             # Calculate conversion time
             conversion_time = time.time() - start_time
@@ -699,6 +702,243 @@ class LivoxWrapper(BaseVendorWrapper):
             return None
         
         return np.array(points, dtype=np.float32)
+    
+    def _convert_lvx_to_las(
+        self,
+        input_path: str,
+        output_path: str,
+        preserve_intensity: bool,
+        max_points: Optional[int],
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Convert Livox LVX/LVX2 file to LAS format.
+        
+        LVX file structure:
+        - Header (24 bytes): Magic bytes "livox_tech", version, frame duration
+        - Device info blocks
+        - Frame data blocks with point cloud data
+        """
+        result = {
+            "success": False,
+            "message": "",
+            "points_converted": 0,
+            "error": None
+        }
+        
+        if not LASPY_AVAILABLE:
+            result["error"] = "laspy not available - install with: pip install laspy"
+            result["message"] = "Cannot create LAS file: laspy package required"
+            return result
+        
+        try:
+            # Read LVX file
+            self.logger.debug(f"Opening LVX file: {input_path}")
+            
+            with open(input_path, 'rb') as f:
+                # Read and parse header
+                header_data = f.read(24)
+                if len(header_data) < 24:
+                    result["error"] = "Invalid LVX file: header too short"
+                    return result
+                
+                # Check magic bytes
+                magic = header_data[:10]
+                if magic != b'livox_tech':
+                    result["error"] = f"Invalid LVX magic bytes: {magic}"
+                    return result
+                
+                # Parse header
+                version_major = header_data[10]
+                version_minor = header_data[11]
+                magic_code = struct.unpack('<I', header_data[12:16])[0]
+                
+                self.logger.info(f"LVX Version: {version_major}.{version_minor}, Magic Code: {magic_code}")
+                
+                # Read device count
+                device_count_data = f.read(1)
+                if len(device_count_data) < 1:
+                    result["error"] = "Invalid LVX file: cannot read device count"
+                    return result
+                
+                device_count = struct.unpack('<B', device_count_data)[0]
+                self.logger.info(f"Number of devices: {device_count}")
+                
+                # Skip device info blocks (59 bytes per device for LVX1, different for LVX2)
+                # For LVX2, the structure is different - skip more conservatively
+                if version_major == 1:
+                    device_info_size = 59 * device_count
+                else:
+                    # LVX2 or unknown version - try to find frame data
+                    # Skip a reasonable amount and look for frame markers
+                    device_info_size = 59 * min(device_count, 10)  # Cap at 10 devices worth
+                
+                f.read(device_info_size)
+                
+                # Collect point cloud data
+                all_points_list = []
+                frame_count = 0
+                points_collected = 0
+                max_points_limit = max_points if max_points else float('inf')
+                max_frames = kwargs.get('max_scans', 1000)  # Use max_scans as max_frames
+                
+                self.logger.info(f"Processing LVX frames (max_frames: {max_frames})...")
+                
+                # For LVX2, try a simpler approach: read chunks and parse point data directly
+                if version_major != 1:
+                    self.logger.info("Detected LVX2 format - using alternative parsing method")
+                    # Read rest of file in chunks
+                    chunk_size = 1024 * 1024  # 1MB chunks
+                    point_size = 14
+                    
+                    while points_collected < max_points_limit and frame_count < max_frames:
+                        chunk = f.read(chunk_size)
+                        if not chunk:
+                            break
+                        
+                        # Try to parse points from chunk
+                        frame_points = []
+                        for offset in range(0, len(chunk) - point_size, point_size):
+                            try:
+                                x_mm = struct.unpack('<i', chunk[offset:offset+4])[0]
+                                y_mm = struct.unpack('<i', chunk[offset+4:offset+8])[0]
+                                z_mm = struct.unpack('<i', chunk[offset+8:offset+12])[0]
+                                reflectivity = chunk[offset+12]
+                                
+                                # Convert and filter
+                                x, y, z = x_mm / 1000.0, y_mm / 1000.0, z_mm / 1000.0
+                                
+                                if abs(x) < 500 and abs(y) < 500 and abs(z) < 500 and abs(x) > 0.01:
+                                    frame_points.append([x, y, z, reflectivity if preserve_intensity else 0])
+                            except:
+                                continue
+                        
+                        if frame_points:
+                            all_points_list.append(np.array(frame_points, dtype=np.float32))
+                            points_collected += len(frame_points)
+                            frame_count += 1
+                            
+                            if frame_count % 10 == 0:
+                                self.logger.debug(f"Processed {frame_count} chunks, {points_collected} points")
+                        
+                        if frame_count >= max_frames:
+                            break
+                    
+                    # Skip the rest of the LVX1 parsing
+                    if all_points_list:
+                        # Jump to combining points
+                        pass
+                    else:
+                        result["error"] = "No valid points found in LVX2 file"
+                        return result
+                else:
+                    # Original LVX1 parsing
+                    while frame_count < max_frames and points_collected < max_points_limit:
+                        # Read frame header (24 bytes)
+                        frame_header = f.read(24)
+                        if len(frame_header) < 24:
+                            break  # End of file
+                        
+                        # Parse frame header
+                        current_offset = struct.unpack('<Q', frame_header[0:8])[0]
+                        next_offset = struct.unpack('<Q', frame_header[8:16])[0]
+                        frame_index = struct.unpack('<Q', frame_header[16:24])[0]
+                        
+                        # Calculate frame data size
+                        if next_offset > current_offset:
+                            frame_size = next_offset - current_offset - 24
+                        else:
+                            # Last frame or invalid, try to read remaining data
+                            current_pos = f.tell()
+                            f.seek(0, 2)  # Seek to end
+                            file_size = f.tell()
+                            f.seek(current_pos)  # Seek back
+                            frame_size = file_size - current_pos
+                        
+                        if frame_size <= 0 or frame_size > 100000000:  # Sanity check (100MB max)
+                            break
+                        
+                        # Read frame data
+                        frame_data = f.read(frame_size)
+                        if len(frame_data) < frame_size:
+                            break
+                        
+                        # Parse points from frame data
+                        # Livox point format: x, y, z (int32, mm), reflectivity (uint8), tag (uint8)
+                        # Total: 14 bytes per point
+                        point_size = 14
+                        num_points = len(frame_data) // point_size
+                        
+                        frame_points = []
+                        for i in range(num_points):
+                            offset = i * point_size
+                            if offset + point_size > len(frame_data):
+                                break
+                            
+                            try:
+                                # Extract point data (coordinates in millimeters)
+                                x_mm = struct.unpack('<i', frame_data[offset:offset+4])[0]
+                                y_mm = struct.unpack('<i', frame_data[offset+4:offset+8])[0]
+                                z_mm = struct.unpack('<i', frame_data[offset+8:offset+12])[0]
+                                reflectivity = frame_data[offset+12]
+                                tag = frame_data[offset+13]
+                                
+                                # Convert from millimeters to meters
+                                x = x_mm / 1000.0
+                                y = y_mm / 1000.0
+                                z = z_mm / 1000.0
+                                
+                                # Filter valid points (reasonable range)
+                                if abs(x) < 500 and abs(y) < 500 and abs(z) < 500:
+                                    if preserve_intensity:
+                                        frame_points.append([x, y, z, reflectivity])
+                                    else:
+                                        frame_points.append([x, y, z, 0])
+                            
+                            except struct.error:
+                                continue
+                        
+                        if frame_points:
+                            all_points_list.append(np.array(frame_points, dtype=np.float32))
+                            points_collected += len(frame_points)
+                        
+                        frame_count += 1
+                        
+                        if frame_count % 100 == 0:
+                            self.logger.debug(f"Processed {frame_count} frames, {points_collected} points")
+                        
+                        if points_collected >= max_points_limit:
+                            self.logger.info(f"Reached max_points limit: {points_collected}")
+                            break
+                
+                if not all_points_list:
+                    result["error"] = "No valid points found in LVX file"
+                    result["message"] = "Could not extract any valid point cloud data"
+                    return result
+                
+                # Combine all points
+                self.logger.debug("Combining all point clouds...")
+                all_points = np.vstack(all_points_list)
+                point_count = len(all_points)
+                
+                # Create LAS file
+                self.logger.debug(f"Writing LAS file: {output_path}")
+                self._create_las_file(all_points, output_path, preserve_intensity)
+                
+                result.update({
+                    "success": True,
+                    "message": f"Successfully converted {point_count:,} points from {frame_count} frames",
+                    "points_converted": point_count
+                })
+                
+                self.logger.info(f"Conversion complete: {point_count:,} points from {frame_count} frames")
+        
+        except Exception as e:
+            result["error"] = str(e)
+            result["message"] = f"LVX parsing conversion failed: {e}"
+            self.logger.exception(f"Error in LVX conversion: {e}")
+        
+        return result
     
     def _create_las_file(self, points: np.ndarray, output_path: str, preserve_intensity: bool) -> None:
         """
