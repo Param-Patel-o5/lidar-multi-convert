@@ -32,7 +32,7 @@ from typing import Dict, List, Optional, Any, Callable
 import logging
 
 from detector import VendorDetector
-from Wrappers import OusterWrapper, VelodyneWrapper, BaseVendorWrapper
+from Wrappers import OusterWrapper, VelodyneWrapper, LivoxWrapper, BaseVendorWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +70,9 @@ class LiDARConverter:
     WRAPPER_REGISTRY = {
         "ouster": OusterWrapper,
         "velodyne": VelodyneWrapper,
+        "livox": LivoxWrapper,
         # Future vendors will be added here:
         # "hesai": HesaiWrapper,
-        # "livox": LivoxWrapper,
         # "riegl": RieglWrapper,
         # "sick": SickWrapper,
     }

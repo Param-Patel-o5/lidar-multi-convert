@@ -17,10 +17,12 @@ Supported Vendors:
 from .base_wrapper import BaseVendorWrapper
 from .ouster_wrapper import OusterWrapper
 from .velodyne_wrapper import VelodyneWrapper
+from .livox_wrapper import LivoxWrapper
 
 __all__ = [
     "BaseVendorWrapper",
     "OusterWrapper",
     "VelodyneWrapper",
+    "LivoxWrapper",
 ]
 
