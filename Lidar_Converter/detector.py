@@ -109,10 +109,10 @@ class VendorDetector:
                 "description": "RIEGL LiDAR sensors"
             },
             "livox": {
-                "extensions": [".lvx", ".lvx2", ".csv"],
-                "magic_bytes": [b"livox_tech"],  # LVX file magic bytes
-                "udp_ports": [56000, 56001, 56002],  # Livox UDP ports (can vary)
-                "packet_size_ranges": [(1400, 1500)],  # Typical Livox packet sizes
+                "extensions": [".lvx", ".lvx2", ".csv", ".pcap"],
+                "magic_bytes": [b"livox_tech"],  # LVX file magic bytes (not in PCAP)
+                "udp_ports": [56000, 56001, 56002, 57000, 58000],  # Livox UDP ports (can vary by model)
+                "packet_size_ranges": [(1300, 1400)],  # Typical Livox packet sizes (1380 bytes common)
                 "required_files": [],
                 "description": "Livox Technology LiDAR sensors"
             },

@@ -290,7 +290,15 @@ class LivoxWrapper(BaseVendorWrapper):
         input_path_obj = Path(input_path)
         output_path_obj = Path(output_path)
         
-        if input_path_obj.suffix.lower() not in self.SUPPORTED_INPUT_FORMATS:
+        # Update supported formats to include PCAP
+        if input_path_obj.suffix.lower() == ".pcap":
+            # PCAP files need special handling
+            result["error"] = "Livox PCAP files require conversion to CSV format first"
+            result["message"] = "Please use Livox Viewer to export PCAP data to CSV format, then convert the CSV file"
+            result["notes"] = "Livox PCAP format is proprietary and requires Livox Viewer for conversion"
+            self.logger.error(result["error"])
+            return result
+        elif input_path_obj.suffix.lower() not in self.SUPPORTED_INPUT_FORMATS:
             result["error"] = f"Unsupported input format: {input_path_obj.suffix}"
             result["message"] = f"Livox wrapper supports: {', '.join(self.SUPPORTED_INPUT_FORMATS)}"
             self.logger.error(result["error"])
