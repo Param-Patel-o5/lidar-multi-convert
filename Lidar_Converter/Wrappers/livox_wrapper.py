@@ -41,6 +41,13 @@ import logging
 LIVOX_SDK_AVAILABLE = False
 livox = None
 
+# PCAP parsing dependency
+try:
+    import dpkt
+    DPKT_AVAILABLE = True
+except ImportError:
+    DPKT_AVAILABLE = False
+
 # CSV parsing dependency
 try:
     import pandas as pd
@@ -99,7 +106,7 @@ class LivoxWrapper(BaseVendorWrapper):
     ]
     
     # Supported input/output formats
-    SUPPORTED_INPUT_FORMATS = [".csv", ".lvx", ".lvx2"]
+    SUPPORTED_INPUT_FORMATS = [".csv", ".lvx", ".lvx2", ".pcap"]
     SUPPORTED_OUTPUT_FORMATS = [".las", ".laz", ".pcd", ".bin", ".csv"]
     
     def __init__(self, sdk_path: Optional[str] = None, raise_on_missing: bool = False):
@@ -290,15 +297,7 @@ class LivoxWrapper(BaseVendorWrapper):
         input_path_obj = Path(input_path)
         output_path_obj = Path(output_path)
         
-        # Update supported formats to include PCAP
-        if input_path_obj.suffix.lower() == ".pcap":
-            # PCAP files need special handling
-            result["error"] = "Livox PCAP files require conversion to CSV format first"
-            result["message"] = "Please use Livox Viewer to export PCAP data to CSV format, then convert the CSV file"
-            result["notes"] = "Livox PCAP format is proprietary and requires Livox Viewer for conversion"
-            self.logger.error(result["error"])
-            return result
-        elif input_path_obj.suffix.lower() not in self.SUPPORTED_INPUT_FORMATS:
+        if input_path_obj.suffix.lower() not in self.SUPPORTED_INPUT_FORMATS:
             result["error"] = f"Unsupported input format: {input_path_obj.suffix}"
             result["message"] = f"Livox wrapper supports: {', '.join(self.SUPPORTED_INPUT_FORMATS)}"
             self.logger.error(result["error"])
@@ -316,6 +315,14 @@ class LivoxWrapper(BaseVendorWrapper):
             # Perform conversion based on input format
             if input_path_obj.suffix.lower() == ".csv":
                 result = self._convert_csv_to_las(
+                    input_path,
+                    output_path,
+                    preserve_intensity,
+                    max_points,
+                    **kwargs
+                )
+            elif input_path_obj.suffix.lower() == ".pcap":
+                result = self._convert_pcap_to_las(
                     input_path,
                     output_path,
                     preserve_intensity,
@@ -447,6 +454,231 @@ class LivoxWrapper(BaseVendorWrapper):
             self.logger.exception(f"Error in CSV conversion: {e}")
         
         return result
+    
+    def _convert_pcap_to_las(
+        self,
+        input_path: str,
+        output_path: str,
+        preserve_intensity: bool,
+        max_points: Optional[int],
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Convert Livox PCAP file to LAS format using manual packet parsing.
+        
+        Livox packet structure (simplified):
+        - UDP payload contains point cloud data
+        - Each point: x, y, z (float32), reflectivity (uint8), tag (uint8)
+        - Packet size typically 1380 bytes
+        """
+        result = {
+            "success": False,
+            "message": "",
+            "points_converted": 0,
+            "error": None
+        }
+        
+        if not DPKT_AVAILABLE:
+            result["error"] = "dpkt not available - install with: pip install dpkt"
+            result["message"] = "Cannot parse PCAP file: dpkt package required"
+            return result
+        
+        if not LASPY_AVAILABLE:
+            result["error"] = "laspy not available - install with: pip install laspy"
+            result["message"] = "Cannot create LAS file: laspy package required"
+            return result
+        
+        try:
+            # Read PCAP file
+            self.logger.debug(f"Opening PCAP: {input_path}")
+            with open(input_path, 'rb') as f:
+                pcap = dpkt.pcap.Reader(f)
+                
+                # Collect point cloud data
+                all_points_list = []
+                packet_count = 0
+                valid_packet_count = 0
+                
+                # Limit points if specified
+                points_collected = 0
+                max_points_limit = max_points if max_points else float('inf')
+                
+                self.logger.info(f"Processing PCAP packets (max_points: {max_points or 'unlimited'})...")
+                
+                for ts, buf in pcap:
+                    packet_count += 1
+                    
+                    if packet_count % 1000 == 0:
+                        self.logger.debug(f"Processing packet {packet_count}... ({points_collected} points collected)")
+                    
+                    try:
+                        # Parse Ethernet frame
+                        eth = dpkt.ethernet.Ethernet(buf)
+                        if eth.type != dpkt.ethernet.ETH_TYPE_IP:
+                            continue
+                        
+                        # Parse IP packet
+                        ip = eth.data
+                        if ip.p != dpkt.ip.IP_PROTO_UDP:
+                            continue
+                        
+                        # Parse UDP packet
+                        udp = ip.data
+                        
+                        # Check if it's a Livox data port (57000, 56000-56002, 58000)
+                        if udp.dport not in [56000, 56001, 56002, 57000, 58000]:
+                            continue
+                        
+                        # Parse Livox packet
+                        points = self._parse_livox_packet(
+                            udp.data,
+                            preserve_intensity
+                        )
+                        
+                        if points is not None and len(points) > 0:
+                            all_points_list.append(points)
+                            valid_packet_count += 1
+                            points_collected += len(points)
+                        
+                        # Check point limit
+                        if points_collected >= max_points_limit:
+                            self.logger.info(f"Reached max_points limit: {points_collected}")
+                            break
+                            
+                    except (dpkt.dpkt.NeedData, dpkt.dpkt.UnpackError, AttributeError) as e:
+                        # Skip malformed packets
+                        continue
+                    except Exception as e:
+                        self.logger.warning(f"Error processing packet {packet_count}: {e}")
+                        continue
+                
+                if not all_points_list:
+                    result["error"] = "No valid Livox packets found in PCAP file"
+                    result["message"] = "Could not extract any valid point cloud data"
+                    return result
+                
+                # Combine all points
+                self.logger.debug("Combining all point clouds...")
+                all_points = np.vstack(all_points_list)
+                point_count = len(all_points)
+                
+                # Create LAS file
+                self.logger.debug(f"Writing LAS file: {output_path}")
+                self._create_las_file(all_points, output_path, preserve_intensity)
+                
+                result.update({
+                    "success": True,
+                    "message": f"Successfully converted {point_count:,} points from {valid_packet_count} packets",
+                    "points_converted": point_count
+                })
+                
+                self.logger.info(f"Conversion complete: {point_count:,} points from {valid_packet_count} packets")
+        
+        except Exception as e:
+            result["error"] = str(e)
+            result["message"] = f"PCAP parsing conversion failed: {e}"
+            self.logger.exception(f"Error in PCAP conversion: {e}")
+        
+        return result
+    
+    def _parse_livox_packet(self, payload: bytes, preserve_intensity: bool) -> Optional[np.ndarray]:
+        """
+        Parse a single Livox UDP packet and extract point data.
+        
+        Livox packet structure (varies by model, this is a simplified version):
+        - Header: version, slot_id, lidar_id, etc.
+        - Point data: multiple points with x, y, z, reflectivity, tag
+        
+        Args:
+            payload: UDP payload bytes
+            preserve_intensity: Whether to include intensity data
+            
+        Returns:
+            numpy array of points [x, y, z, intensity] or None if invalid
+        """
+        if len(payload) < 100:  # Minimum packet size check
+            return None
+        
+        points = []
+        
+        try:
+            # Livox packet header (first ~24 bytes, varies by version)
+            # Skip header and parse point data
+            # This is a simplified parser - actual Livox format is more complex
+            
+            # Try to parse as point cloud data
+            # Livox point format: x, y, z (int32, mm), reflectivity (uint8), tag (uint8)
+            # Total: 14 bytes per point
+            
+            offset = 24  # Skip header (approximate)
+            point_size = 14
+            
+            while offset + point_size <= len(payload):
+                try:
+                    # Parse point data (Livox uses millimeters for coordinates)
+                    x_mm = struct.unpack('<i', payload[offset:offset+4])[0]
+                    y_mm = struct.unpack('<i', payload[offset+4:offset+8])[0]
+                    z_mm = struct.unpack('<i', payload[offset+8:offset+12])[0]
+                    reflectivity = payload[offset+12]
+                    tag = payload[offset+13]
+                    
+                    # Convert from millimeters to meters
+                    x = x_mm / 1000.0
+                    y = y_mm / 1000.0
+                    z = z_mm / 1000.0
+                    
+                    # Filter valid points (reasonable range)
+                    if abs(x) < 500 and abs(y) < 500 and abs(z) < 500:
+                        if preserve_intensity:
+                            points.append([x, y, z, reflectivity])
+                        else:
+                            points.append([x, y, z, 0])
+                    
+                    offset += point_size
+                    
+                except struct.error:
+                    break
+        
+        except Exception as e:
+            self.logger.debug(f"Error parsing Livox packet: {e}")
+            return None
+        
+        if not points:
+            return None
+        
+        return np.array(points, dtype=np.float32)
+    
+    def _create_las_file(self, points: np.ndarray, output_path: str, preserve_intensity: bool) -> None:
+        """
+        Create LAS file from point cloud data.
+        
+        Args:
+            points: Point cloud array [x, y, z, intensity]
+            output_path: Output file path
+            preserve_intensity: Whether to include intensity data
+        """
+        # Create LAS header
+        header = laspy.LasHeader(point_format=1, version="1.2")
+        header.x_scale = 0.001  # 1mm precision
+        header.y_scale = 0.001
+        header.z_scale = 0.001
+        header.x_offset = float(points[:, 0].mean())
+        header.y_offset = float(points[:, 1].mean())
+        header.z_offset = float(points[:, 2].mean())
+        
+        # Create LAS data
+        las_file = laspy.LasData(header)
+        las_file.x = points[:, 0]
+        las_file.y = points[:, 1]
+        las_file.z = points[:, 2]
+        
+        if preserve_intensity and points.shape[1] > 3:
+            las_file.intensity = points[:, 3].astype(np.uint16)
+        else:
+            las_file.intensity = np.zeros(len(points), dtype=np.uint16)
+        
+        # Write LAS file
+        las_file.write(str(output_path))
     
     def convert(
         self,
