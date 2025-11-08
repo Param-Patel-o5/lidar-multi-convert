@@ -1159,8 +1159,8 @@ class LivoxWrapper(BaseVendorWrapper):
                 
             elif output_format == "laz":
                 # Extract points, create LAS, then compress to LAZ
-                preserve_intensity = kwargs.get("preserve_intensity", True)
-                max_points = kwargs.get("max_points", None)
+                preserve_intensity = kwargs.pop("preserve_intensity", True)
+                max_points = kwargs.pop("max_points", None)
                 
                 points = self._extract_points(input_path, preserve_intensity, max_points, **kwargs)
                 
@@ -1207,8 +1207,8 @@ class LivoxWrapper(BaseVendorWrapper):
                 
             elif output_format == "pcd":
                 # Extract points and convert to PCD
-                preserve_intensity = kwargs.get("preserve_intensity", True)
-                max_points = kwargs.get("max_points", None)
+                preserve_intensity = kwargs.pop("preserve_intensity", True)
+                max_points = kwargs.pop("max_points", None)
                 
                 points = self._extract_points(input_path, preserve_intensity, max_points, **kwargs)
                 
@@ -1232,8 +1232,8 @@ class LivoxWrapper(BaseVendorWrapper):
                 
             elif output_format == "bin":
                 # Extract points and convert to BIN
-                preserve_intensity = kwargs.get("preserve_intensity", True)
-                max_points = kwargs.get("max_points", None)
+                preserve_intensity = kwargs.pop("preserve_intensity", True)
+                max_points = kwargs.pop("max_points", None)
                 
                 points = self._extract_points(input_path, preserve_intensity, max_points, **kwargs)
                 
@@ -1257,8 +1257,8 @@ class LivoxWrapper(BaseVendorWrapper):
                 
             elif output_format == "csv":
                 # Extract points and convert to CSV
-                preserve_intensity = kwargs.get("preserve_intensity", True)
-                max_points = kwargs.get("max_points", None)
+                preserve_intensity = kwargs.pop("preserve_intensity", True)
+                max_points = kwargs.pop("max_points", None)
                 
                 points = self._extract_points(input_path, preserve_intensity, max_points, **kwargs)
                 
@@ -1338,7 +1338,7 @@ class LivoxWrapper(BaseVendorWrapper):
         
         Checks:
         - File exists and is readable
-        - File is valid LAS format
+        - File format is valid (LAS/LAZ/PCD/BIN/CSV)
         - Point count is reasonable (> 0)
         
         Args:
@@ -1365,22 +1365,61 @@ class LivoxWrapper(BaseVendorWrapper):
             self.logger.error(f"Output file is empty: {output_path}")
             return False
         
-        # Validate LAS file structure
+        # Determine format from extension
+        file_ext = output_path_obj.suffix.lower()
+        
+        # Validate based on format
         try:
-            if not LASPY_AVAILABLE:
-                self.logger.warning("laspy not available - skipping LAS validation")
-                return True  # Assume valid if we can't validate
-            
-            las_file = laspy.read(output_path)
-            point_count = len(las_file.points)
-            
-            if point_count == 0:
-                self.logger.error("Output file contains no points")
-                return False
-            
-            self.logger.info(f"Validation passed: {point_count:,} points in output file")
-            return True
+            if file_ext in ['.las', '.laz']:
+                # Validate LAS/LAZ file structure
+                if not LASPY_AVAILABLE:
+                    self.logger.warning("laspy not available - skipping LAS validation")
+                    return True  # Assume valid if we can't validate
+                
+                las_file = laspy.read(output_path)
+                point_count = len(las_file.points)
+                
+                if point_count == 0:
+                    self.logger.error("Output file contains no points")
+                    return False
+                
+                self.logger.info(f"Validation passed: {point_count:,} points in output file")
+                return True
+                
+            elif file_ext == '.pcd':
+                # Basic PCD validation - check header
+                with open(output_path, 'r') as f:
+                    first_line = f.readline().strip()
+                    if not first_line.startswith('# .PCD'):
+                        self.logger.error("Invalid PCD file header")
+                        return False
+                self.logger.info(f"Validation passed: PCD file structure valid")
+                return True
+                
+            elif file_ext == '.bin':
+                # BIN validation - check file size is multiple of 16 bytes (4 floats)
+                file_size = output_path_obj.stat().st_size
+                if file_size % 16 != 0:
+                    self.logger.error(f"Invalid BIN file size: {file_size} (not multiple of 16)")
+                    return False
+                point_count = file_size // 16
+                self.logger.info(f"Validation passed: {point_count:,} points in BIN file")
+                return True
+                
+            elif file_ext == '.csv':
+                # CSV validation - check header
+                with open(output_path, 'r') as f:
+                    first_line = f.readline().strip()
+                    if not first_line.startswith('x,y,z'):
+                        self.logger.error("Invalid CSV file header")
+                        return False
+                self.logger.info(f"Validation passed: CSV file structure valid")
+                return True
+                
+            else:
+                self.logger.warning(f"Unknown format {file_ext} - skipping validation")
+                return True
         
         except Exception as e:
-            self.logger.error(f"LAS validation failed: {e}")
+            self.logger.error(f"Validation failed: {e}")
             return False
