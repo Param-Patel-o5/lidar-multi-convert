@@ -28,7 +28,8 @@ lidar-convert convert <input_file> [options]
 
 **Options:**
 - `-o, --output <path>` - Output file path (auto-generated if not provided)
-- `-f, --format <format>` - Output format: `las`, `laz`, `pcd`, `bin`, `csv` (default: `las`)
+- `-f, --format <format>` - Output format: `las`, `laz`, `pcd`, `bin`, `csv` (auto-detected from file extension if not specified)
+- `--max-scans <number>` - Limit number of scans to process (for faster testing)
 - `--sensor-model <model>` - Sensor model identifier (e.g., "OS1-64", "VLP-16")
 - `-c, --calibration <file>` - Path to calibration/metadata file
 - `--validate` - Validate output file after conversion
@@ -36,17 +37,23 @@ lidar-convert convert <input_file> [options]
 
 **Examples:**
 ```bash
-# Basic conversion
+# Basic conversion - format auto-detected from extension
 lidar-convert convert data.pcap -o output.las
 
-# Convert to LAZ format with validation
-lidar-convert convert data.pcap -f laz -o output.laz --validate
+# Convert to different formats (auto-detected)
+lidar-convert convert data.pcap -o output.laz  # LAZ format
+lidar-convert convert data.pcap -o output.pcd  # PCD format
+lidar-convert convert data.pcap -o output.bin  # BIN format
+lidar-convert convert data.pcap -o output.csv  # CSV format
 
-# Convert with sensor model specified (Ouster)
-lidar-convert convert ouster_data.pcap -o output.las --sensor-model "OS1-64"
+# Fast preview with scan limit
+lidar-convert convert data.pcap -o output.las --max-scans 10
 
-# Convert Velodyne data (automatic detection)
-lidar-convert convert velodyne_data.pcap -o output.las --sensor-model "VLP-16"
+# Convert with validation
+lidar-convert convert data.pcap -o output.laz --validate
+
+# Explicitly specify format (optional)
+lidar-convert convert data.pcap -o output.laz --format laz
 ```
 
 ### 2. Batch Conversion
@@ -135,6 +142,67 @@ lidar-convert test data.pcap
 # JSON output
 lidar-convert test data.pcap --output-format json
 ```
+
+## Output Formats
+
+The CLI supports automatic format detection from file extensions:
+
+### Supported Formats
+
+| Format | Extension | Vendor Support | Description |
+|--------|-----------|----------------|-------------|
+| **LAS** | `.las` | Ouster, Velodyne, Livox | ASPRS standard, uncompressed |
+| **LAZ** | `.laz` | Ouster, Velodyne, Livox | Compressed LAS (60-80% smaller) |
+| **PCD** | `.pcd` | Ouster, Velodyne, Livox | Point Cloud Library format |
+| **BIN** | `.bin` | Ouster, Velodyne, Livox | KITTI binary format |
+| **CSV** | `.csv` | Ouster, Velodyne, Livox | Human-readable text format |
+
+### Format Auto-Detection
+
+Simply specify the desired extension in the output filename:
+
+```bash
+# No --format flag needed!
+lidar-convert convert data.pcap -o output.las  # → LAS format
+lidar-convert convert data.pcap -o output.laz  # → LAZ format
+lidar-convert convert data.pcap -o output.pcd  # → PCD format
+lidar-convert convert data.pcap -o output.bin  # → BIN format
+lidar-convert convert data.pcap -o output.csv  # → CSV format
+```
+
+### Format-Specific Notes
+
+- **LAZ**: Automatic compression using laspy 2.0+ or external laszip tool. Falls back to uncompressed LAS if compression unavailable.
+- **PCD**: ASCII format for maximum compatibility with PCL and ROS.
+- **BIN**: Little-endian float32 format (16 bytes per point: x, y, z, intensity).
+- **CSV**: Includes header row with column names.
+
+## Performance Tips
+
+### Scan Limiting
+
+Use `--max-scans` to process only a portion of large files:
+
+```bash
+# Fast preview (10 scans)
+lidar-convert convert large_file.pcap -o preview.las --max-scans 10
+
+# Medium sample (100 scans)
+lidar-convert convert large_file.pcap -o sample.las --max-scans 100
+
+# Full file (omit --max-scans)
+lidar-convert convert large_file.pcap -o full.las
+```
+
+### Performance by Vendor
+
+| Vendor | 10 Scans | Points | Time |
+|--------|----------|--------|------|
+| Ouster | ~500K | 517,860 | ~0.5s |
+| Velodyne | ~900 | 866 | ~0.05s |
+| Livox | ~1M | 1,000,000 | ~11s |
+
+**Note**: Livox uses point-based limiting (1 scan ≈ 100,000 points) for optimal performance.
 
 ## Global Options
 

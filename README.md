@@ -16,7 +16,7 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 
 - ✅ **Ouster**: OS-0, OS-1, OS-2, OS-Dome series (16/32/64/128 channels)
 - ✅ **Velodyne**: VLP-16, VLP-32C, HDL-32E, HDL-64E, VLS-128
-- ✅ **Livox**: Avia, Horizon, Tele-15, Mid-40/70 (LAS output only, other formats in progress)
+- ✅ **Livox**: Avia, Horizon, Tele-15, Mid-40/70 (All formats supported)
 - 🚧 **Hesai**: PandarXT, Pandar64, Pandar40P (planned)
 - 🚧 **RIEGL**: VUX series, miniVUX (planned)
 
@@ -36,10 +36,10 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 | Format | Ouster | Velodyne | Livox | Description | Best For |
 |--------|--------|----------|-------|-------------|----------|
 | **LAS** | ✅ | ✅ | ✅ | ASPRS LASer format (uncompressed) | GIS, surveying, general use |
-| **LAZ** | ✅ | ✅ | 🚧 | Compressed LAS format | Storage optimization, archival |
-| **PCD** | ✅ | ✅ | 🚧 | Point Cloud Data (PCL format) | Robotics, ROS, PCL tools |
-| **BIN** | ✅ | ✅ | 🚧 | Binary format (KITTI standard) | Machine learning, autonomous driving |
-| **CSV** | ✅ | ✅ | 🚧 | Comma-separated values | Data analysis, spreadsheets, custom processing |
+| **LAZ** | ✅ | ✅ | ✅ | Compressed LAS format | Storage optimization, archival |
+| **PCD** | ✅ | ✅ | ✅ | Point Cloud Data (PCL format) | Robotics, ROS, PCL tools |
+| **BIN** | ✅ | ✅ | ✅ | Binary format (KITTI standard) | Machine learning, autonomous driving |
+| **CSV** | ✅ | ✅ | ✅ | Comma-separated values | Data analysis, spreadsheets, custom processing |
 
 **Legend:**
 - ✅ Fully supported
@@ -138,38 +138,37 @@ else:
 
 ### Converting to Different Output Formats
 
+**Note**: Output format is automatically detected from the file extension! No need to specify `output_format` parameter.
+
 ```python
 from Lidar_Converter.converter import LiDARConverter
 
 converter = LiDARConverter()
 
+# Format is auto-detected from file extension
 # Convert to LAZ (compressed LAS)
 result = converter.convert(
     input_path="data.pcap",
-    output_path="output.laz",
-    output_format="laz"
+    output_path="output.laz"  # .laz extension → LAZ format
 )
 
 # Convert to PCD (Point Cloud Library format)
 result = converter.convert(
     input_path="data.pcap",
-    output_path="output.pcd",
-    output_format="pcd",
+    output_path="output.pcd",  # .pcd extension → PCD format
     preserve_intensity=True  # Include intensity values
 )
 
 # Convert to BIN (KITTI format for ML)
 result = converter.convert(
     input_path="data.pcap",
-    output_path="output.bin",
-    output_format="bin"
+    output_path="output.bin"  # .bin extension → BIN format
 )
 
 # Convert to CSV (for data analysis)
 result = converter.convert(
     input_path="data.pcap",
-    output_path="output.csv",
-    output_format="csv",
+    output_path="output.csv",  # .csv extension → CSV format
     preserve_intensity=True
 )
 ```
@@ -178,16 +177,16 @@ result = converter.convert(
 
 ```python
 # For GIS and surveying (compressed storage)
-converter.convert("scan.pcap", "survey_data.laz", output_format="laz")
+converter.convert("scan.pcap", "survey_data.laz")  # Auto-detects LAZ format
 
 # For robotics and ROS applications
-converter.convert("scan.pcap", "robot_scan.pcd", output_format="pcd")
+converter.convert("scan.pcap", "robot_scan.pcd")  # Auto-detects PCD format
 
 # For machine learning training (KITTI format)
-converter.convert("scan.pcap", "training_data.bin", output_format="bin")
+converter.convert("scan.pcap", "training_data.bin")  # Auto-detects BIN format
 
 # For data analysis in Python/Excel
-converter.convert("scan.pcap", "analysis.csv", output_format="csv")
+converter.convert("scan.pcap", "analysis.csv")  # Auto-detects CSV format
 ```
 
 ### Command Line Usage
@@ -199,14 +198,15 @@ python Lidar_Converter/cli.py health
 # Detect vendor automatically
 python Lidar_Converter/cli.py detect data.pcap
 
-# Convert to LAS (default format)
+# Convert - format auto-detected from file extension (no --format flag needed!)
 python Lidar_Converter/cli.py convert data.pcap -o output.las --max-scans 1000
+python Lidar_Converter/cli.py convert data.pcap -o output.laz --max-scans 1000
+python Lidar_Converter/cli.py convert data.pcap -o output.pcd --max-scans 1000
+python Lidar_Converter/cli.py convert data.pcap -o output.bin --max-scans 1000
+python Lidar_Converter/cli.py convert data.pcap -o output.csv --max-scans 1000
 
-# Convert to different formats
+# Or explicitly specify format (optional)
 python Lidar_Converter/cli.py convert data.pcap -o output.laz --format laz
-python Lidar_Converter/cli.py convert data.pcap -o output.pcd --format pcd
-python Lidar_Converter/cli.py convert data.pcap -o output.bin --format bin
-python Lidar_Converter/cli.py convert data.pcap -o output.csv --format csv
 
 # Batch convert multiple files (preserves format from output path)
 python Lidar_Converter/cli.py batch ./data_dir -o ./output_dir
@@ -238,6 +238,28 @@ lidar-converter/
 ├── .gitignore              # Git ignore rules
 └── README.md               # This file
 ```
+
+## Performance
+
+The converter is optimized for fast processing with configurable scan limits:
+
+### Processing Speed (with --max-scans 10)
+- **Ouster**: ~0.5s for 517K points
+- **Velodyne**: ~0.05s for 866 points  
+- **Livox**: ~11s for 1M points
+
+### Scan Limiting
+Use `--max-scans` to process only a portion of the file for faster testing:
+
+```bash
+# Process only first 10 scans (fast preview)
+python Lidar_Converter/cli.py convert data.pcap -o output.las --max-scans 10
+
+# Process full file (omit --max-scans)
+python Lidar_Converter/cli.py convert data.pcap -o output.las
+```
+
+**Note**: Livox uses point-based limiting internally (1 scan ≈ 100,000 points) for optimal performance.
 
 ## Development
 
