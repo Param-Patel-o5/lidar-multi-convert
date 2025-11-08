@@ -839,10 +839,10 @@ class VelodyneWrapper(BaseVendorWrapper):
             return result
         
         try:
-            # Extract parameters
-            sensor_model = kwargs.get("sensor_model")
-            preserve_intensity = kwargs.get("preserve_intensity", True)
-            max_scans = kwargs.get("max_scans")
+            # Extract parameters that are passed as positional args (remove from kwargs to avoid duplicates)
+            sensor_model = kwargs.pop("sensor_model", None)
+            preserve_intensity = kwargs.pop("preserve_intensity", True)
+            max_scans = kwargs.pop("max_scans", None)
             
             # Auto-detect sensor model if not provided
             if not sensor_model:
