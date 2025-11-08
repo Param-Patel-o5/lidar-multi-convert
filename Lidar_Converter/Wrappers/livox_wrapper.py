@@ -312,6 +312,17 @@ class LivoxWrapper(BaseVendorWrapper):
             dict: Conversion result with success status and details
         """
         start_time = time.time()
+        
+        # Convert max_scans to max_points if provided
+        # Livox uses point-based limiting instead of scan-based
+        # Approximate: 1 scan ≈ 100,000 points for Livox sensors
+        max_scans = kwargs.pop('max_scans', None)
+        if max_scans is not None and max_points is None:
+            # Estimate points per scan for Livox (typically 50k-100k points per scan)
+            estimated_points = max_scans * 100000
+            max_points = estimated_points
+            self.logger.info(f"Converting max_scans={max_scans} to max_points≈{estimated_points}")
+        
         result = {
             "success": False,
             "message": "",
@@ -1150,17 +1161,28 @@ class LivoxWrapper(BaseVendorWrapper):
             return result
         
         try:
+            # Convert max_scans to max_points if provided
+            # Livox uses point-based limiting instead of scan-based
+            # Approximate: 1 scan ≈ 100,000 points for Livox sensors
+            max_points = kwargs.pop('max_points', None)
+            max_scans = kwargs.pop('max_scans', None)
+            
+            if max_scans is not None and max_points is None:
+                # Estimate points per scan for Livox (typically 50k-100k points per scan)
+                estimated_points = max_scans * 100000
+                max_points = estimated_points
+                self.logger.info(f"Converting max_scans={max_scans} to max_points≈{estimated_points}")
+            
             self.logger.info(f"Starting Livox conversion: {input_path} -> {output_path} ({output_format})")
             
             # Route to appropriate format handler
             if output_format == "las":
                 # Use existing convert_to_las method
-                result = self.convert_to_las(input_path, output_path, **kwargs)
+                result = self.convert_to_las(input_path, output_path, max_points=max_points, **kwargs)
                 
             elif output_format == "laz":
                 # Extract points, create LAS, then compress to LAZ
                 preserve_intensity = kwargs.pop("preserve_intensity", True)
-                max_points = kwargs.pop("max_points", None)
                 
                 points = self._extract_points(input_path, preserve_intensity, max_points, **kwargs)
                 
@@ -1208,7 +1230,6 @@ class LivoxWrapper(BaseVendorWrapper):
             elif output_format == "pcd":
                 # Extract points and convert to PCD
                 preserve_intensity = kwargs.pop("preserve_intensity", True)
-                max_points = kwargs.pop("max_points", None)
                 
                 points = self._extract_points(input_path, preserve_intensity, max_points, **kwargs)
                 
@@ -1233,7 +1254,6 @@ class LivoxWrapper(BaseVendorWrapper):
             elif output_format == "bin":
                 # Extract points and convert to BIN
                 preserve_intensity = kwargs.pop("preserve_intensity", True)
-                max_points = kwargs.pop("max_points", None)
                 
                 points = self._extract_points(input_path, preserve_intensity, max_points, **kwargs)
                 
@@ -1258,7 +1278,6 @@ class LivoxWrapper(BaseVendorWrapper):
             elif output_format == "csv":
                 # Extract points and convert to CSV
                 preserve_intensity = kwargs.pop("preserve_intensity", True)
-                max_points = kwargs.pop("max_points", None)
                 
                 points = self._extract_points(input_path, preserve_intensity, max_points, **kwargs)
                 
