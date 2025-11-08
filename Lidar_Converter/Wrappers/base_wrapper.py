@@ -492,14 +492,26 @@ DATA ascii
             else:
                 self.logger.warning("laszip command not found in PATH")
             
-            # Method 3: Return uncompressed LAS with warning
-            self.logger.warning("LAZ compression not available, returning uncompressed LAS file")
-            return {
-                "success": True,
-                "output_file": las_path,
-                "compression_method": "none",
-                "warning": "LAZ compression not available. Install laspy 2.0+ or laszip for compression support."
-            }
+            # Method 3: Rename LAS to LAZ (uncompressed) with warning
+            self.logger.warning("LAZ compression not available, returning uncompressed LAS file with .laz extension")
+            try:
+                # Rename LAS file to LAZ (it will be uncompressed but have .laz extension)
+                shutil.move(las_path, laz_path)
+                
+                return {
+                    "success": True,
+                    "output_file": laz_path,
+                    "compression_method": "none",
+                    "warning": "LAZ compression not available. File saved as uncompressed LAS with .laz extension. Install laspy 2.0+ or laszip for compression support."
+                }
+            except Exception as e:
+                self.logger.error(f"Failed to rename LAS to LAZ: {str(e)}")
+                return {
+                    "success": True,
+                    "output_file": las_path,
+                    "compression_method": "none",
+                    "warning": f"LAZ compression not available and file rename failed. Returning LAS file. Error: {str(e)}"
+                }
             
         except Exception as e:
             return {

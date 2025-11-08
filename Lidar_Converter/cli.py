@@ -264,7 +264,15 @@ def cmd_convert(args, config: Dict[str, Any]) -> int:
     """
     input_file = args.input_file
     output_file = args.output or config.get("output_dir")
-    output_format = args.format or config.get("output_format", "las")
+    
+    # Infer format from output file extension if not explicitly specified
+    if args.format:
+        output_format = args.format
+    elif output_file and Path(output_file).suffix:
+        # Extract format from file extension
+        output_format = Path(output_file).suffix.lstrip('.').lower()
+    else:
+        output_format = config.get("output_format", "las")
     
     # Build kwargs from args
     kwargs = {}
@@ -695,9 +703,9 @@ For more information, see: https://github.com/Param-Patel-o5/lidar-converter
     convert_parser = subparsers.add_parser("convert", help="Convert a single LiDAR file")
     convert_parser.add_argument("input_file", type=str, help="Input LiDAR file")
     convert_parser.add_argument("-o", "--output", type=str, help="Output file path")
-    convert_parser.add_argument("-f", "--format", type=str, default="las",
+    convert_parser.add_argument("-f", "--format", type=str, default=None,
                                choices=["las", "laz", "pcd", "bin", "csv"],
-                               help="Output format")
+                               help="Output format (auto-detected from output file extension if not specified)")
     convert_parser.add_argument("--sensor-model", type=str, help="Sensor model identifier")
     convert_parser.add_argument("-c", "--calibration", type=str, help="Path to calibration/metadata file")
     convert_parser.add_argument("--validate", action="store_true", help="Validate output file")
@@ -709,9 +717,9 @@ For more information, see: https://github.com/Param-Patel-o5/lidar-converter
     batch_parser = subparsers.add_parser("batch", help="Batch convert multiple files")
     batch_parser.add_argument("input_dir", type=str, help="Input directory")
     batch_parser.add_argument("-o", "--output-dir", type=str, help="Output directory")
-    batch_parser.add_argument("-f", "--format", type=str, default="las",
+    batch_parser.add_argument("-f", "--format", type=str, default=None,
                             choices=["las", "laz", "pcd", "bin", "csv"],
-                            help="Output format")
+                            help="Output format (auto-detected from output file extension if not specified)")
     batch_parser.add_argument("-p", "--pattern", type=str, default="*.pcap",
                              help="File pattern to match")
     batch_parser.add_argument("-r", "--recursive", action="store_true",

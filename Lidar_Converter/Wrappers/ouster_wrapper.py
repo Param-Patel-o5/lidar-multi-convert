@@ -705,11 +705,15 @@ class OusterWrapper(BaseVendorWrapper):
             
             self.logger.info(f"Starting Ouster conversion: {input_path} -> {output_path} ({output_format})")
             
+            # Extract parameters that are passed as positional args
+            sensor_model = kwargs.pop('sensor_model', None)
+            max_scans = kwargs.pop('max_scans', None)
+            
             points = self._convert_with_python_sdk(
                 input_path,
                 metadata_path,
-                kwargs.get('sensor_model'),
-                kwargs.get('max_scans'),
+                sensor_model,
+                max_scans,
                 **kwargs
             )
             
