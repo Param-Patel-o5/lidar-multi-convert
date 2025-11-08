@@ -5,8 +5,8 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 ## Features
 
 - 🔍 **Automatic Vendor Detection**: Multi-method detection using UDP ports, packet structure, magic bytes, and companion files
-- 🔄 **Multi-Vendor Support**: Supports Ouster and Velodyne sensors with unified conversion pipeline
-- 📦 **Standardized Output**: Converts to LAS/LAZ formats compatible with CloudCompare, PDAL, and other tools
+- 🔄 **Multi-Vendor Support**: Supports Ouster, Velodyne, and Livox sensors with unified conversion pipeline
+- 📦 **Multiple Output Formats**: Converts to LAS, LAZ, PCD, BIN (KITTI), and CSV formats
 - ⚡ **Optimized Processing**: Fast conversion with configurable scan limits and streaming PCAP processing
 - 🛠️ **Easy Integration**: Simple Python API and comprehensive CLI for automation
 - 🏥 **Health Monitoring**: Built-in health checks and SDK validation
@@ -16,9 +16,71 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 
 - ✅ **Ouster**: OS-0, OS-1, OS-2, OS-Dome series (16/32/64/128 channels)
 - ✅ **Velodyne**: VLP-16, VLP-32C, HDL-32E, HDL-64E, VLS-128
+- ✅ **Livox**: Avia, Horizon, Tele-15, Mid-40/70 (LAS output only, other formats in progress)
 - 🚧 **Hesai**: PandarXT, Pandar64, Pandar40P (planned)
-- 🚧 **Livox**: Avia, Horizon, Tele-15 (planned)
 - 🚧 **RIEGL**: VUX series, miniVUX (planned)
+
+## Supported Formats
+
+### Input Formats
+
+| Format | Ouster | Velodyne | Livox | Notes |
+|--------|--------|----------|-------|-------|
+| PCAP   | ✅     | ✅       | ✅    | Requires metadata JSON for Ouster |
+| CSV    | ❌     | ❌       | ✅    | Livox Viewer export format |
+| LVX    | ❌     | ❌       | ✅    | Livox proprietary format |
+| LVX2   | ❌     | ❌       | ✅    | Livox proprietary format v2 |
+
+### Output Formats
+
+| Format | Ouster | Velodyne | Livox | Description | Best For |
+|--------|--------|----------|-------|-------------|----------|
+| **LAS** | ✅ | ✅ | ✅ | ASPRS LASer format (uncompressed) | GIS, surveying, general use |
+| **LAZ** | ✅ | ✅ | 🚧 | Compressed LAS format | Storage optimization, archival |
+| **PCD** | ✅ | ✅ | 🚧 | Point Cloud Data (PCL format) | Robotics, ROS, PCL tools |
+| **BIN** | ✅ | ✅ | 🚧 | Binary format (KITTI standard) | Machine learning, autonomous driving |
+| **CSV** | ✅ | ✅ | 🚧 | Comma-separated values | Data analysis, spreadsheets, custom processing |
+
+**Legend:**
+- ✅ Fully supported
+- 🚧 In progress
+- ❌ Not supported
+
+### Format Details
+
+#### LAS (ASPRS Standard)
+- Industry-standard format for LiDAR data exchange
+- Includes point coordinates (X, Y, Z) and intensity
+- Compatible with CloudCompare, PDAL, QGIS, ArcGIS
+- File size: ~30-40 MB per million points
+
+#### LAZ (Compressed LAS)
+- LASzip-compressed LAS format
+- 60-80% smaller than LAS files
+- Lossless compression
+- Automatic compression using laspy 2.0+ or external laszip tool
+- File size: ~10-15 MB per million points
+
+#### PCD (Point Cloud Library)
+- Native format for Point Cloud Library (PCL)
+- ASCII format for maximum compatibility
+- Includes point coordinates and intensity
+- Ideal for robotics and ROS applications
+- File size: ~60-80 MB per million points
+
+#### BIN (KITTI Format)
+- Binary format used by KITTI dataset
+- Raw float32 values: [x, y, z, intensity] per point
+- Little-endian byte order
+- Optimized for machine learning pipelines
+- File size: ~16 MB per million points (16 bytes/point)
+
+#### CSV (Comma-Separated Values)
+- Human-readable text format
+- Header row: x, y, z, intensity
+- Easy to import into Excel, pandas, MATLAB
+- Good for data analysis and visualization
+- File size: ~60-80 MB per million points
 
 ## Installation
 
@@ -61,7 +123,7 @@ from Lidar_Converter.converter import LiDARConverter
 # Initialize converter
 converter = LiDARConverter()
 
-# Automatic vendor detection and conversion
+# Automatic vendor detection and conversion to LAS
 result = converter.convert(
     input_path="data.pcap",
     output_path="output.las",
@@ -74,6 +136,60 @@ else:
     print(f"Error: {result['message']}")
 ```
 
+### Converting to Different Output Formats
+
+```python
+from Lidar_Converter.converter import LiDARConverter
+
+converter = LiDARConverter()
+
+# Convert to LAZ (compressed LAS)
+result = converter.convert(
+    input_path="data.pcap",
+    output_path="output.laz",
+    output_format="laz"
+)
+
+# Convert to PCD (Point Cloud Library format)
+result = converter.convert(
+    input_path="data.pcap",
+    output_path="output.pcd",
+    output_format="pcd",
+    preserve_intensity=True  # Include intensity values
+)
+
+# Convert to BIN (KITTI format for ML)
+result = converter.convert(
+    input_path="data.pcap",
+    output_path="output.bin",
+    output_format="bin"
+)
+
+# Convert to CSV (for data analysis)
+result = converter.convert(
+    input_path="data.pcap",
+    output_path="output.csv",
+    output_format="csv",
+    preserve_intensity=True
+)
+```
+
+### Format-Specific Use Cases
+
+```python
+# For GIS and surveying (compressed storage)
+converter.convert("scan.pcap", "survey_data.laz", output_format="laz")
+
+# For robotics and ROS applications
+converter.convert("scan.pcap", "robot_scan.pcd", output_format="pcd")
+
+# For machine learning training (KITTI format)
+converter.convert("scan.pcap", "training_data.bin", output_format="bin")
+
+# For data analysis in Python/Excel
+converter.convert("scan.pcap", "analysis.csv", output_format="csv")
+```
+
 ### Command Line Usage
 
 ```bash
@@ -83,10 +199,16 @@ python Lidar_Converter/cli.py health
 # Detect vendor automatically
 python Lidar_Converter/cli.py detect data.pcap
 
-# Convert with automatic vendor detection
+# Convert to LAS (default format)
 python Lidar_Converter/cli.py convert data.pcap -o output.las --max-scans 1000
 
-# Batch convert multiple files
+# Convert to different formats
+python Lidar_Converter/cli.py convert data.pcap -o output.laz --format laz
+python Lidar_Converter/cli.py convert data.pcap -o output.pcd --format pcd
+python Lidar_Converter/cli.py convert data.pcap -o output.bin --format bin
+python Lidar_Converter/cli.py convert data.pcap -o output.csv --format csv
+
+# Batch convert multiple files (preserves format from output path)
 python Lidar_Converter/cli.py batch ./data_dir -o ./output_dir
 
 # Convert with validation
@@ -179,12 +301,15 @@ Minimum confidence threshold: 14% for positive detection.
 ## Roadmap
 
 - [x] ~~Add Velodyne sensor support~~
+- [x] ~~Add Livox sensor support (Avia, Horizon)~~
+- [x] ~~Implement LAZ compression~~
+- [x] ~~Add PCD, BIN, and CSV output formats~~
+- [ ] Complete Livox multi-format support (PCD, BIN, CSV, LAZ)
 - [ ] Add Hesai sensor support (PandarXT, Pandar64)
-- [ ] Add Livox sensor support (Avia, Horizon)
 - [ ] Add RIEGL sensor support (VUX series)
-- [ ] Implement LAZ compression
-- [ ] Add PCD and other output formats
+- [ ] Add binary PCD format support
+- [ ] Add E57 and PLY format support
 - [ ] Create Docker container
 - [ ] Add CI/CD pipeline
-- [ ] Performance optimizations
+- [ ] Performance optimizations (parallel processing)
 - [ ] Web interface for conversion

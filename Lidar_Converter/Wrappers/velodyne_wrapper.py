@@ -391,28 +391,49 @@ class VelodyneWrapper(BaseVendorWrapper):
                     self.logger.warning("Could not auto-detect sensor model, using VLP-16 as default")
                     sensor_model = "VLP-16"
             
-            # Perform conversion using dpkt parsing
-            result = self._convert_with_dpkt_parsing(
+            # Extract points using refactored pipeline
+            points = self._convert_with_dpkt_parsing(
                 input_path,
-                output_path,
                 sensor_model,
                 preserve_intensity,
                 max_scans,
                 **kwargs
             )
             
+            if points is None:
+                result["error"] = "Failed to extract points from PCAP"
+                result["message"] = "Could not parse Velodyne data"
+                self.logger.error(result["error"])
+                return result
+            
+            # Check laspy availability
+            if not LASPY_AVAILABLE:
+                result["error"] = "laspy not available - install with: pip install laspy"
+                result["message"] = "Cannot create LAS file: laspy package required"
+                self.logger.error(result["error"])
+                return result
+            
+            # Create LAS file from points array
+            self.logger.debug(f"Writing LAS file: {output_path}")
+            self._create_las_file(points, output_path, preserve_intensity)
+            
+            point_count = len(points)
+            
             # Calculate conversion time
             conversion_time = time.time() - start_time
-            result["conversion_time"] = conversion_time
-            result["sdk_version_used"] = self.sdk_version
             
-            if result["success"]:
-                result["output_file"] = str(output_path)
-                self.logger.info(
-                    f"Conversion completed: {result['points_converted']} points in {conversion_time:.2f}s"
-                )
-            else:
-                self.logger.error(f"Conversion failed: {result.get('error', 'Unknown error')}")
+            result.update({
+                "success": True,
+                "message": f"Successfully converted {point_count:,} points",
+                "points_converted": point_count,
+                "output_file": str(output_path),
+                "conversion_time": conversion_time,
+                "sdk_version_used": self.sdk_version
+            })
+            
+            self.logger.info(
+                f"Conversion completed: {point_count:,} points in {conversion_time:.2f}s"
+            )
         
         except Exception as e:
             conversion_time = time.time() - start_time
@@ -485,29 +506,27 @@ class VelodyneWrapper(BaseVendorWrapper):
     def _convert_with_dpkt_parsing(
         self,
         input_path: str,
-        output_path: str,
         sensor_model: str,
         preserve_intensity: bool,
         max_scans: Optional[int],
         **kwargs
-    ) -> Dict[str, Any]:
-        """Convert using dpkt PCAP parsing and manual Velodyne packet processing."""
-        result = {
-            "success": False,
-            "message": "",
-            "points_converted": 0,
-            "error": None
-        }
+    ) -> Optional[np.ndarray]:
+        """
+        Extract point cloud data from PCAP using dpkt parsing.
         
+        Args:
+            input_path: Path to input PCAP file
+            sensor_model: Velodyne sensor model
+            preserve_intensity: Whether to include intensity values
+            max_scans: Optional limit on number of scans to process
+            **kwargs: Additional parameters
+            
+        Returns:
+            numpy array with shape (N, 4) containing [x, y, z, intensity] or None if failed
+        """
         if not DPKT_AVAILABLE:
-            result["error"] = "dpkt not available - install with: pip install dpkt"
-            result["message"] = "Cannot parse PCAP file: dpkt package required"
-            return result
-        
-        if not LASPY_AVAILABLE:
-            result["error"] = "laspy not available - install with: pip install laspy"
-            result["message"] = "Cannot create LAS file: laspy package required"
-            return result
+            self.logger.error("dpkt not available - install with: pip install dpkt")
+            return None
         
         try:
             # Get sensor-specific parameters
@@ -572,33 +591,20 @@ class VelodyneWrapper(BaseVendorWrapper):
                         continue
                 
                 if not all_points_list:
-                    result["error"] = "No valid Velodyne packets found in PCAP file"
-                    result["message"] = "Could not extract any valid point cloud data"
-                    return result
+                    self.logger.error("No valid Velodyne packets found in PCAP file")
+                    return None
                 
                 # Combine all points
                 self.logger.debug("Combining all point clouds...")
                 all_points = np.vstack(all_points_list)
                 point_count = len(all_points)
                 
-                # Create LAS file
-                self.logger.debug(f"Writing LAS file: {output_path}")
-                self._create_las_file(all_points, output_path, preserve_intensity)
-                
-                result.update({
-                    "success": True,
-                    "message": f"Successfully converted {point_count:,} points from {valid_packet_count} packets",
-                    "points_converted": point_count
-                })
-                
-                self.logger.info(f"Conversion complete: {point_count:,} points from {valid_packet_count} packets")
+                self.logger.info(f"Extracted {point_count:,} points from {valid_packet_count} packets")
+                return all_points
         
         except Exception as e:
-            result["error"] = str(e)
-            result["message"] = f"dpkt parsing conversion failed: {e}"
-            self.logger.exception(f"Error in dpkt conversion: {e}")
-        
-        return result
+            self.logger.exception(f"Error in dpkt parsing: {e}")
+            return None
     
     def _parse_velodyne_packet(
         self, 
@@ -780,65 +786,266 @@ class VelodyneWrapper(BaseVendorWrapper):
             input_path: Path to input file
             output_format: Target format ("las", "laz", "pcd", "bin", "csv")
             output_path: Path where output file will be written
-            **kwargs: Additional parameters
+            **kwargs: Additional parameters including:
+                - sensor_model: Velodyne sensor model (e.g., "VLP-16")
+                - preserve_intensity: Whether to preserve intensity values (default: True)
+                - max_scans: Optional limit on number of scans to process
             
         Returns:
             dict: Conversion result dictionary
         """
+        start_time = time.time()
         output_format = output_format.lower().lstrip(".")
         
-        if output_format == "las":
-            return self.convert_to_las(input_path, output_path, **kwargs)
-        elif output_format == "laz":
-            # Convert to LAS first, then compress
-            las_path = str(Path(output_path).with_suffix(".las"))
-            result = self.convert_to_las(input_path, las_path, **kwargs)
-            if result["success"]:
-                # LAZ compression not yet implemented
-                self.logger.warning("LAZ compression not yet implemented - returning LAS file")
-                result["output_file"] = las_path
-            return result
-        elif output_format == "pcd":
-            return self._convert_to_pcd(input_path, output_path, **kwargs)
-        elif output_format in ["bin", "csv"]:
-            result = {
-                "success": False,
-                "error": f"Output format '{output_format}' not yet implemented",
-                "message": "Only LAS format is currently supported",
-                "output_file": None,
-                "conversion_time": 0.0,
-                "points_converted": 0,
-                "sdk_version_used": self.sdk_version
-            }
-            return result
-        else:
-            result = {
-                "success": False,
-                "error": f"Unsupported output format: {output_format}",
-                "message": f"Supported formats: {', '.join(self.SUPPORTED_OUTPUT_FORMATS)}",
-                "output_file": None,
-                "conversion_time": 0.0,
-                "points_converted": 0,
-                "sdk_version_used": self.sdk_version
-            }
-            return result
-    
-    def _convert_to_pcd(
-        self,
-        input_path: str,
-        output_path: str,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """Convert to PCD format (placeholder for future implementation)."""
-        return {
+        result = {
             "success": False,
-            "error": "PCD format conversion not yet implemented",
-            "message": "PCD format support is planned for future release",
+            "message": "",
             "output_file": None,
             "conversion_time": 0.0,
             "points_converted": 0,
-            "sdk_version_used": self.sdk_version
+            "sdk_version_used": self.sdk_version,
+            "error": None
         }
+        
+        # Validate SDK availability
+        if not self.sdk_available:
+            result["error"] = "Velodyne processing capability is not available"
+            result["message"] = "Cannot convert: dpkt library required for Velodyne PCAP parsing"
+            self.logger.error(result["error"])
+            return result
+        
+        # Validate input file
+        input_validation = self._validate_file_path(input_path, must_exist=True)
+        if not input_validation["valid"]:
+            result["error"] = input_validation["error"]
+            result["message"] = f"Input validation failed: {input_validation['error']}"
+            self.logger.error(result["error"])
+            return result
+        
+        # Validate output directory
+        output_validation = self._validate_output_directory(output_path)
+        if not output_validation["valid"]:
+            result["error"] = output_validation["error"]
+            result["message"] = f"Output validation failed: {output_validation['error']}"
+            self.logger.error(result["error"])
+            return result
+        
+        # Validate input format
+        input_path_obj = Path(input_path)
+        if input_path_obj.suffix.lower() != ".pcap":
+            result["error"] = f"Unsupported input format: {input_path_obj.suffix}"
+            result["message"] = "Velodyne wrapper only supports .pcap input files"
+            self.logger.error(result["error"])
+            return result
+        
+        try:
+            # Extract parameters
+            sensor_model = kwargs.get("sensor_model")
+            preserve_intensity = kwargs.get("preserve_intensity", True)
+            max_scans = kwargs.get("max_scans")
+            
+            # Auto-detect sensor model if not provided
+            if not sensor_model:
+                sensor_model = self._detect_sensor_model(input_path)
+                if sensor_model:
+                    self.logger.info(f"Auto-detected sensor model: {sensor_model}")
+                else:
+                    self.logger.warning("Could not auto-detect sensor model, using VLP-16 as default")
+                    sensor_model = "VLP-16"
+            
+            self.logger.info(f"Starting Velodyne conversion: {input_path} -> {output_path} ({output_format})")
+            
+            # Route to appropriate format handler
+            if output_format == "las":
+                # Extract points
+                points = self._convert_with_dpkt_parsing(
+                    input_path,
+                    sensor_model,
+                    preserve_intensity,
+                    max_scans,
+                    **kwargs
+                )
+                
+                if points is None:
+                    result["error"] = "Failed to extract points from PCAP"
+                    result["message"] = "Could not parse Velodyne data"
+                    return result
+                
+                # Convert to LAS
+                if not LASPY_AVAILABLE:
+                    result["error"] = "laspy not available - install with: pip install laspy"
+                    result["message"] = "Cannot create LAS file: laspy package required"
+                    return result
+                
+                self._create_las_file(points, output_path, preserve_intensity)
+                
+                result.update({
+                    "success": True,
+                    "message": f"Successfully converted {len(points):,} points to LAS format",
+                    "points_converted": len(points),
+                    "output_file": output_path
+                })
+                
+            elif output_format == "laz":
+                # Extract points
+                points = self._convert_with_dpkt_parsing(
+                    input_path,
+                    sensor_model,
+                    preserve_intensity,
+                    max_scans,
+                    **kwargs
+                )
+                
+                if points is None:
+                    result["error"] = "Failed to extract points from PCAP"
+                    result["message"] = "Could not parse Velodyne data"
+                    return result
+                
+                # Convert to LAS first
+                if not LASPY_AVAILABLE:
+                    result["error"] = "laspy not available - install with: pip install laspy"
+                    result["message"] = "Cannot create LAS file: laspy package required"
+                    return result
+                
+                las_path = str(Path(output_path).with_suffix(".las"))
+                self._create_las_file(points, las_path, preserve_intensity)
+                
+                # Compress to LAZ
+                compression_result = self._compress_las_to_laz(las_path, output_path)
+                
+                if compression_result["success"]:
+                    result.update({
+                        "success": True,
+                        "message": f"Successfully converted {len(points):,} points to LAZ format",
+                        "points_converted": len(points),
+                        "output_file": compression_result["output_file"],
+                        "compression_method": compression_result.get("compression_method")
+                    })
+                    
+                    # Add warning if compression wasn't available
+                    if "warning" in compression_result:
+                        result["warning"] = compression_result["warning"]
+                else:
+                    result["error"] = compression_result.get("error", "LAZ compression failed")
+                    result["message"] = "Failed to compress LAS to LAZ"
+                    
+            elif output_format == "pcd":
+                # Extract points
+                points = self._convert_with_dpkt_parsing(
+                    input_path,
+                    sensor_model,
+                    preserve_intensity,
+                    max_scans,
+                    **kwargs
+                )
+                
+                if points is None:
+                    result["error"] = "Failed to extract points from PCAP"
+                    result["message"] = "Could not parse Velodyne data"
+                    return result
+                
+                # Convert to PCD
+                pcd_result = self._points_to_pcd(points, output_path, preserve_intensity)
+                
+                if pcd_result["success"]:
+                    result.update({
+                        "success": True,
+                        "message": f"Successfully converted {pcd_result['points_converted']:,} points to PCD format",
+                        "points_converted": pcd_result["points_converted"],
+                        "output_file": pcd_result["output_file"]
+                    })
+                else:
+                    result["error"] = pcd_result.get("error", "PCD conversion failed")
+                    result["message"] = "Failed to convert to PCD format"
+                    
+            elif output_format == "bin":
+                # Extract points
+                points = self._convert_with_dpkt_parsing(
+                    input_path,
+                    sensor_model,
+                    preserve_intensity,
+                    max_scans,
+                    **kwargs
+                )
+                
+                if points is None:
+                    result["error"] = "Failed to extract points from PCAP"
+                    result["message"] = "Could not parse Velodyne data"
+                    return result
+                
+                # Convert to BIN
+                bin_result = self._points_to_bin(points, output_path)
+                
+                if bin_result["success"]:
+                    result.update({
+                        "success": True,
+                        "message": f"Successfully converted {bin_result['points_converted']:,} points to BIN format",
+                        "points_converted": bin_result["points_converted"],
+                        "output_file": bin_result["output_file"]
+                    })
+                else:
+                    result["error"] = bin_result.get("error", "BIN conversion failed")
+                    result["message"] = "Failed to convert to BIN format"
+                    
+            elif output_format == "csv":
+                # Extract points
+                points = self._convert_with_dpkt_parsing(
+                    input_path,
+                    sensor_model,
+                    preserve_intensity,
+                    max_scans,
+                    **kwargs
+                )
+                
+                if points is None:
+                    result["error"] = "Failed to extract points from PCAP"
+                    result["message"] = "Could not parse Velodyne data"
+                    return result
+                
+                # Convert to CSV
+                csv_result = self._points_to_csv(points, output_path, preserve_intensity)
+                
+                if csv_result["success"]:
+                    result.update({
+                        "success": True,
+                        "message": f"Successfully converted {csv_result['points_converted']:,} points to CSV format",
+                        "points_converted": csv_result["points_converted"],
+                        "output_file": csv_result["output_file"]
+                    })
+                else:
+                    result["error"] = csv_result.get("error", "CSV conversion failed")
+                    result["message"] = "Failed to convert to CSV format"
+                    
+            else:
+                result["error"] = f"Unsupported output format: {output_format}"
+                result["message"] = f"Supported formats: {', '.join(self.SUPPORTED_OUTPUT_FORMATS)}"
+                self.logger.error(result["error"])
+                return result
+            
+            # Calculate conversion time
+            conversion_time = time.time() - start_time
+            result["conversion_time"] = conversion_time
+            
+            if result["success"]:
+                self.logger.info(
+                    f"Conversion completed: {result['points_converted']} points in {conversion_time:.2f}s"
+                )
+            else:
+                self.logger.error(f"Conversion failed: {result.get('error', 'Unknown error')}")
+        
+        except Exception as e:
+            conversion_time = time.time() - start_time
+            result.update({
+                "success": False,
+                "error": str(e),
+                "message": f"Conversion failed: {e}",
+                "conversion_time": conversion_time
+            })
+            self.logger.exception(f"Exception during Velodyne conversion: {e}")
+        
+        return result
+    
+
     
     def get_vendor_info(self) -> Dict[str, Any]:
         """

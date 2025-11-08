@@ -423,23 +423,71 @@ class LivoxWrapper(BaseVendorWrapper):
         max_points: Optional[int],
         **kwargs
     ) -> Dict[str, Any]:
-        """Convert Livox CSV file to LAS format."""
-        result = {
-            "success": False,
-            "message": "",
-            "points_converted": 0,
-            "error": None
-        }
+        """
+        Convert Livox CSV file to LAS format.
         
+        This method extracts points and creates a LAS file.
+        For multi-format support, use _extract_points_from_csv() instead.
+        """
+        # Extract points array
+        points = self._extract_points_from_csv(input_path, preserve_intensity, max_points, **kwargs)
+        
+        if points is None:
+            return {
+                "success": False,
+                "message": "Failed to extract points from CSV",
+                "points_converted": 0,
+                "error": "Point extraction failed"
+            }
+        
+        # Create LAS file from points
+        try:
+            if not LASPY_AVAILABLE:
+                return {
+                    "success": False,
+                    "error": "laspy not available - install with: pip install laspy",
+                    "message": "Cannot create LAS file: laspy package required",
+                    "points_converted": 0
+                }
+            
+            self.logger.debug(f"Writing LAS file: {output_path}")
+            self._create_las_file(points, output_path, preserve_intensity)
+            
+            return {
+                "success": True,
+                "message": f"Successfully converted {len(points):,} points from CSV",
+                "points_converted": len(points)
+            }
+        
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"LAS file creation failed: {e}",
+                "points_converted": 0
+            }
+    
+    def _extract_points_from_csv(
+        self,
+        input_path: str,
+        preserve_intensity: bool,
+        max_points: Optional[int],
+        **kwargs
+    ) -> Optional[np.ndarray]:
+        """
+        Extract point cloud data from Livox CSV file.
+        
+        Args:
+            input_path: Path to CSV file
+            preserve_intensity: Whether to include intensity values
+            max_points: Optional limit on number of points
+            
+        Returns:
+            numpy array with shape (N, 4) containing [x, y, z, intensity] or None on error
+        """
         if not PANDAS_AVAILABLE:
-            result["error"] = "pandas not available - install with: pip install pandas"
-            result["message"] = "Cannot parse CSV file: pandas package required"
-            return result
-        
-        if not LASPY_AVAILABLE:
-            result["error"] = "laspy not available - install with: pip install laspy"
-            result["message"] = "Cannot create LAS file: laspy package required"
-            return result
+            self.logger.error("pandas not available - install with: pip install pandas")
+            return None
         
         try:
             # Read CSV file
@@ -453,9 +501,8 @@ class LivoxWrapper(BaseVendorWrapper):
             
             # Extract point data
             if 'x' not in df.columns or 'y' not in df.columns or 'z' not in df.columns:
-                result["error"] = "CSV file missing required columns (x, y, z)"
-                result["message"] = "Livox CSV must contain x, y, z columns"
-                return result
+                self.logger.error("CSV file missing required columns (x, y, z)")
+                return None
             
             # Get coordinates
             x = df['x'].values
@@ -473,42 +520,15 @@ class LivoxWrapper(BaseVendorWrapper):
             else:
                 intensity = np.zeros(len(df))
             
-            # Create LAS file
-            self.logger.debug(f"Writing LAS file: {output_path}")
+            # Combine into Nx4 array
+            points = np.column_stack([x, y, z, intensity]).astype(np.float32)
             
-            # Create LAS header
-            header = laspy.LasHeader(point_format=1, version="1.2")
-            header.x_scale = 0.001  # 1mm precision
-            header.y_scale = 0.001
-            header.z_scale = 0.001
-            header.x_offset = float(x.mean())
-            header.y_offset = float(y.mean())
-            header.z_offset = float(z.mean())
-            
-            # Create LAS data
-            las_file = laspy.LasData(header)
-            las_file.x = x
-            las_file.y = y
-            las_file.z = z
-            las_file.intensity = intensity.astype(np.uint16)
-            
-            # Write LAS file
-            las_file.write(str(output_path))
-            
-            result.update({
-                "success": True,
-                "message": f"Successfully converted {len(df):,} points from CSV",
-                "points_converted": len(df)
-            })
-            
-            self.logger.info(f"Conversion complete: {len(df):,} points")
+            self.logger.info(f"Extracted {len(points):,} points from CSV")
+            return points
         
         except Exception as e:
-            result["error"] = str(e)
-            result["message"] = f"CSV conversion failed: {e}"
-            self.logger.exception(f"Error in CSV conversion: {e}")
-        
-        return result
+            self.logger.exception(f"Error extracting points from CSV: {e}")
+            return None
     
     def _convert_pcap_to_las(
         self,
@@ -521,27 +541,73 @@ class LivoxWrapper(BaseVendorWrapper):
         """
         Convert Livox PCAP file to LAS format using manual packet parsing.
         
+        This method extracts points and creates a LAS file.
+        For multi-format support, use _extract_points_from_pcap() instead.
+        """
+        # Extract points array
+        points = self._extract_points_from_pcap(input_path, preserve_intensity, max_points, **kwargs)
+        
+        if points is None:
+            return {
+                "success": False,
+                "message": "Failed to extract points from PCAP",
+                "points_converted": 0,
+                "error": "Point extraction failed"
+            }
+        
+        # Create LAS file from points
+        try:
+            if not LASPY_AVAILABLE:
+                return {
+                    "success": False,
+                    "error": "laspy not available - install with: pip install laspy",
+                    "message": "Cannot create LAS file: laspy package required",
+                    "points_converted": 0
+                }
+            
+            self.logger.debug(f"Writing LAS file: {output_path}")
+            self._create_las_file(points, output_path, preserve_intensity)
+            
+            return {
+                "success": True,
+                "message": f"Successfully converted {len(points):,} points from PCAP",
+                "points_converted": len(points)
+            }
+        
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"LAS file creation failed: {e}",
+                "points_converted": 0
+            }
+    
+    def _extract_points_from_pcap(
+        self,
+        input_path: str,
+        preserve_intensity: bool,
+        max_points: Optional[int],
+        **kwargs
+    ) -> Optional[np.ndarray]:
+        """
+        Extract point cloud data from Livox PCAP file.
+        
         Livox packet structure (simplified):
         - UDP payload contains point cloud data
         - Each point: x, y, z (float32), reflectivity (uint8), tag (uint8)
         - Packet size typically 1380 bytes
+        
+        Args:
+            input_path: Path to PCAP file
+            preserve_intensity: Whether to include intensity values
+            max_points: Optional limit on number of points
+            
+        Returns:
+            numpy array with shape (N, 4) containing [x, y, z, intensity] or None on error
         """
-        result = {
-            "success": False,
-            "message": "",
-            "points_converted": 0,
-            "error": None
-        }
-        
         if not DPKT_AVAILABLE:
-            result["error"] = "dpkt not available - install with: pip install dpkt"
-            result["message"] = "Cannot parse PCAP file: dpkt package required"
-            return result
-        
-        if not LASPY_AVAILABLE:
-            result["error"] = "laspy not available - install with: pip install laspy"
-            result["message"] = "Cannot create LAS file: laspy package required"
-            return result
+            self.logger.error("dpkt not available - install with: pip install dpkt")
+            return None
         
         try:
             # Read PCAP file
@@ -608,33 +674,19 @@ class LivoxWrapper(BaseVendorWrapper):
                         continue
                 
                 if not all_points_list:
-                    result["error"] = "No valid Livox packets found in PCAP file"
-                    result["message"] = "Could not extract any valid point cloud data"
-                    return result
+                    self.logger.error("No valid Livox packets found in PCAP file")
+                    return None
                 
                 # Combine all points
                 self.logger.debug("Combining all point clouds...")
                 all_points = np.vstack(all_points_list)
-                point_count = len(all_points)
                 
-                # Create LAS file
-                self.logger.debug(f"Writing LAS file: {output_path}")
-                self._create_las_file(all_points, output_path, preserve_intensity)
-                
-                result.update({
-                    "success": True,
-                    "message": f"Successfully converted {point_count:,} points from {valid_packet_count} packets",
-                    "points_converted": point_count
-                })
-                
-                self.logger.info(f"Conversion complete: {point_count:,} points from {valid_packet_count} packets")
+                self.logger.info(f"Extracted {len(all_points):,} points from {valid_packet_count} packets")
+                return all_points
         
         except Exception as e:
-            result["error"] = str(e)
-            result["message"] = f"PCAP parsing conversion failed: {e}"
-            self.logger.exception(f"Error in PCAP conversion: {e}")
-        
-        return result
+            self.logger.exception(f"Error extracting points from PCAP: {e}")
+            return None
     
     def _parse_livox_packet(self, payload: bytes, preserve_intensity: bool) -> Optional[np.ndarray]:
         """
@@ -703,6 +755,40 @@ class LivoxWrapper(BaseVendorWrapper):
         
         return np.array(points, dtype=np.float32)
     
+    def _extract_points(
+        self,
+        input_path: str,
+        preserve_intensity: bool = True,
+        max_points: Optional[int] = None,
+        **kwargs
+    ) -> Optional[np.ndarray]:
+        """
+        Extract point cloud data from Livox file (any supported format).
+        
+        Routes to appropriate extraction method based on input file format.
+        
+        Args:
+            input_path: Path to input file (.csv, .pcap, .lvx, .lvx2)
+            preserve_intensity: Whether to include intensity values
+            max_points: Optional limit on number of points
+            **kwargs: Additional parameters
+            
+        Returns:
+            numpy array with shape (N, 4) containing [x, y, z, intensity] or None on error
+        """
+        input_path_obj = Path(input_path)
+        input_format = input_path_obj.suffix.lower()
+        
+        if input_format == ".csv":
+            return self._extract_points_from_csv(input_path, preserve_intensity, max_points, **kwargs)
+        elif input_format == ".pcap":
+            return self._extract_points_from_pcap(input_path, preserve_intensity, max_points, **kwargs)
+        elif input_format in [".lvx", ".lvx2"]:
+            return self._extract_points_from_lvx(input_path, preserve_intensity, max_points, **kwargs)
+        else:
+            self.logger.error(f"Unsupported input format: {input_format}")
+            return None
+    
     def _convert_lvx_to_las(
         self,
         input_path: str,
@@ -714,23 +800,70 @@ class LivoxWrapper(BaseVendorWrapper):
         """
         Convert Livox LVX/LVX2 file to LAS format.
         
+        This method extracts points and creates a LAS file.
+        For multi-format support, use _extract_points_from_lvx() instead.
+        """
+        # Extract points array
+        points = self._extract_points_from_lvx(input_path, preserve_intensity, max_points, **kwargs)
+        
+        if points is None:
+            return {
+                "success": False,
+                "message": "Failed to extract points from LVX",
+                "points_converted": 0,
+                "error": "Point extraction failed"
+            }
+        
+        # Create LAS file from points
+        try:
+            if not LASPY_AVAILABLE:
+                return {
+                    "success": False,
+                    "error": "laspy not available - install with: pip install laspy",
+                    "message": "Cannot create LAS file: laspy package required",
+                    "points_converted": 0
+                }
+            
+            self.logger.debug(f"Writing LAS file: {output_path}")
+            self._create_las_file(points, output_path, preserve_intensity)
+            
+            return {
+                "success": True,
+                "message": f"Successfully converted {len(points):,} points from LVX",
+                "points_converted": len(points)
+            }
+        
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"LAS file creation failed: {e}",
+                "points_converted": 0
+            }
+    
+    def _extract_points_from_lvx(
+        self,
+        input_path: str,
+        preserve_intensity: bool,
+        max_points: Optional[int],
+        **kwargs
+    ) -> Optional[np.ndarray]:
+        """
+        Extract point cloud data from Livox LVX/LVX2 file.
+        
         LVX file structure:
         - Header (24 bytes): Magic bytes "livox_tech", version, frame duration
         - Device info blocks
         - Frame data blocks with point cloud data
+        
+        Args:
+            input_path: Path to LVX file
+            preserve_intensity: Whether to include intensity values
+            max_points: Optional limit on number of points
+            
+        Returns:
+            numpy array with shape (N, 4) containing [x, y, z, intensity] or None on error
         """
-        result = {
-            "success": False,
-            "message": "",
-            "points_converted": 0,
-            "error": None
-        }
-        
-        if not LASPY_AVAILABLE:
-            result["error"] = "laspy not available - install with: pip install laspy"
-            result["message"] = "Cannot create LAS file: laspy package required"
-            return result
-        
         try:
             # Read LVX file
             self.logger.debug(f"Opening LVX file: {input_path}")
@@ -912,33 +1045,19 @@ class LivoxWrapper(BaseVendorWrapper):
                             break
                 
                 if not all_points_list:
-                    result["error"] = "No valid points found in LVX file"
-                    result["message"] = "Could not extract any valid point cloud data"
-                    return result
+                    self.logger.error("No valid points found in LVX file")
+                    return None
                 
                 # Combine all points
                 self.logger.debug("Combining all point clouds...")
                 all_points = np.vstack(all_points_list)
-                point_count = len(all_points)
                 
-                # Create LAS file
-                self.logger.debug(f"Writing LAS file: {output_path}")
-                self._create_las_file(all_points, output_path, preserve_intensity)
-                
-                result.update({
-                    "success": True,
-                    "message": f"Successfully converted {point_count:,} points from {frame_count} frames",
-                    "points_converted": point_count
-                })
-                
-                self.logger.info(f"Conversion complete: {point_count:,} points from {frame_count} frames")
+                self.logger.info(f"Extracted {len(all_points):,} points from {frame_count} frames")
+                return all_points
         
         except Exception as e:
-            result["error"] = str(e)
-            result["message"] = f"LVX parsing conversion failed: {e}"
-            self.logger.exception(f"Error in LVX conversion: {e}")
-        
-        return result
+            self.logger.exception(f"Error extracting points from LVX: {e}")
+            return None
     
     def _create_las_file(self, points: np.ndarray, output_path: str, preserve_intensity: bool) -> None:
         """
@@ -993,41 +1112,201 @@ class LivoxWrapper(BaseVendorWrapper):
         Returns:
             dict: Conversion result dictionary
         """
+        start_time = time.time()
         output_format = output_format.lower().lstrip(".")
         
-        if output_format == "las":
-            return self.convert_to_las(input_path, output_path, **kwargs)
-        elif output_format == "laz":
-            # Convert to LAS first, then compress
-            las_path = str(Path(output_path).with_suffix(".las"))
-            result = self.convert_to_las(input_path, las_path, **kwargs)
+        # Initialize result dictionary
+        result = {
+            "success": False,
+            "message": "",
+            "output_file": None,
+            "conversion_time": 0.0,
+            "points_converted": 0,
+            "sdk_version_used": self.sdk_version,
+            "error": None
+        }
+        
+        # Validate SDK availability
+        if not self.sdk_available:
+            result["error"] = "Livox processing capability is not available"
+            result["message"] = "Cannot convert: required libraries not available"
+            self.logger.error(result["error"])
+            return result
+        
+        # Validate input file
+        input_validation = self._validate_file_path(input_path, must_exist=True)
+        if not input_validation["valid"]:
+            result["error"] = input_validation["error"]
+            result["message"] = f"Input validation failed: {input_validation['error']}"
+            self.logger.error(result["error"])
+            return result
+        
+        # Validate output directory
+        output_validation = self._validate_output_directory(output_path)
+        if not output_validation["valid"]:
+            result["error"] = output_validation["error"]
+            result["message"] = f"Output validation failed: {output_validation['error']}"
+            self.logger.error(result["error"])
+            return result
+        
+        try:
+            self.logger.info(f"Starting Livox conversion: {input_path} -> {output_path} ({output_format})")
+            
+            # Route to appropriate format handler
+            if output_format == "las":
+                # Use existing convert_to_las method
+                result = self.convert_to_las(input_path, output_path, **kwargs)
+                
+            elif output_format == "laz":
+                # Extract points, create LAS, then compress to LAZ
+                preserve_intensity = kwargs.get("preserve_intensity", True)
+                max_points = kwargs.get("max_points", None)
+                
+                points = self._extract_points(input_path, preserve_intensity, max_points, **kwargs)
+                
+                if points is None or len(points) == 0:
+                    result["error"] = "Failed to extract points from input file"
+                    result["message"] = "Point extraction failed"
+                    self.logger.error(result["error"])
+                    return result
+                
+                # Create temporary LAS file
+                las_path = str(Path(output_path).with_suffix(".las"))
+                
+                try:
+                    if not LASPY_AVAILABLE:
+                        result["error"] = "laspy not available - install with: pip install laspy"
+                        result["message"] = "Cannot create LAS file: laspy package required"
+                        return result
+                    
+                    self._create_las_file(points, las_path, preserve_intensity)
+                    
+                    # Compress to LAZ
+                    compression_result = self._compress_las_to_laz(las_path, output_path)
+                    
+                    if compression_result["success"]:
+                        result["success"] = True
+                        result["points_converted"] = len(points)
+                        result["output_file"] = compression_result["output_file"]
+                        result["message"] = f"Successfully converted {len(points):,} points to LAZ"
+                        
+                        if "warning" in compression_result:
+                            result["warning"] = compression_result["warning"]
+                        
+                        # Clean up temporary LAS file if LAZ was created
+                        if compression_result["output_file"] != las_path and Path(las_path).exists():
+                            Path(las_path).unlink()
+                    else:
+                        result["error"] = compression_result.get("error", "LAZ compression failed")
+                        result["message"] = "Failed to compress LAS to LAZ"
+                        
+                except Exception as e:
+                    result["error"] = str(e)
+                    result["message"] = f"LAZ conversion failed: {e}"
+                    self.logger.exception(f"Error in LAZ conversion: {e}")
+                
+            elif output_format == "pcd":
+                # Extract points and convert to PCD
+                preserve_intensity = kwargs.get("preserve_intensity", True)
+                max_points = kwargs.get("max_points", None)
+                
+                points = self._extract_points(input_path, preserve_intensity, max_points, **kwargs)
+                
+                if points is None or len(points) == 0:
+                    result["error"] = "Failed to extract points from input file"
+                    result["message"] = "Point extraction failed"
+                    self.logger.error(result["error"])
+                    return result
+                
+                # Convert to PCD using BaseVendorWrapper helper
+                pcd_result = self._points_to_pcd(points, output_path, preserve_intensity)
+                
+                if pcd_result["success"]:
+                    result["success"] = True
+                    result["points_converted"] = pcd_result["points_converted"]
+                    result["output_file"] = pcd_result["output_file"]
+                    result["message"] = f"Successfully converted {pcd_result['points_converted']:,} points to PCD"
+                else:
+                    result["error"] = pcd_result.get("error", "PCD conversion failed")
+                    result["message"] = pcd_result.get("error", "Failed to convert to PCD")
+                
+            elif output_format == "bin":
+                # Extract points and convert to BIN
+                preserve_intensity = kwargs.get("preserve_intensity", True)
+                max_points = kwargs.get("max_points", None)
+                
+                points = self._extract_points(input_path, preserve_intensity, max_points, **kwargs)
+                
+                if points is None or len(points) == 0:
+                    result["error"] = "Failed to extract points from input file"
+                    result["message"] = "Point extraction failed"
+                    self.logger.error(result["error"])
+                    return result
+                
+                # Convert to BIN using BaseVendorWrapper helper
+                bin_result = self._points_to_bin(points, output_path)
+                
+                if bin_result["success"]:
+                    result["success"] = True
+                    result["points_converted"] = bin_result["points_converted"]
+                    result["output_file"] = bin_result["output_file"]
+                    result["message"] = f"Successfully converted {bin_result['points_converted']:,} points to BIN"
+                else:
+                    result["error"] = bin_result.get("error", "BIN conversion failed")
+                    result["message"] = bin_result.get("error", "Failed to convert to BIN")
+                
+            elif output_format == "csv":
+                # Extract points and convert to CSV
+                preserve_intensity = kwargs.get("preserve_intensity", True)
+                max_points = kwargs.get("max_points", None)
+                
+                points = self._extract_points(input_path, preserve_intensity, max_points, **kwargs)
+                
+                if points is None or len(points) == 0:
+                    result["error"] = "Failed to extract points from input file"
+                    result["message"] = "Point extraction failed"
+                    self.logger.error(result["error"])
+                    return result
+                
+                # Convert to CSV using BaseVendorWrapper helper
+                csv_result = self._points_to_csv(points, output_path, preserve_intensity)
+                
+                if csv_result["success"]:
+                    result["success"] = True
+                    result["points_converted"] = csv_result["points_converted"]
+                    result["output_file"] = csv_result["output_file"]
+                    result["message"] = f"Successfully converted {csv_result['points_converted']:,} points to CSV"
+                else:
+                    result["error"] = csv_result.get("error", "CSV conversion failed")
+                    result["message"] = csv_result.get("error", "Failed to convert to CSV")
+                
+            else:
+                result["error"] = f"Unsupported output format: {output_format}"
+                result["message"] = f"Supported formats: {', '.join(self.SUPPORTED_OUTPUT_FORMATS)}"
+                self.logger.error(result["error"])
+            
+            # Calculate conversion time
+            conversion_time = time.time() - start_time
+            result["conversion_time"] = conversion_time
+            
             if result["success"]:
-                # LAZ compression not yet implemented
-                self.logger.warning("LAZ compression not yet implemented - returning LAS file")
-                result["output_file"] = las_path
-            return result
-        elif output_format in ["pcd", "bin", "csv"]:
-            result = {
+                self.logger.info(
+                    f"Conversion completed: {result['points_converted']} points in {conversion_time:.2f}s"
+                )
+            else:
+                self.logger.error(f"Conversion failed: {result.get('error', 'Unknown error')}")
+        
+        except Exception as e:
+            conversion_time = time.time() - start_time
+            result.update({
                 "success": False,
-                "error": f"Output format '{output_format}' not yet implemented",
-                "message": "Only LAS format is currently supported",
-                "output_file": None,
-                "conversion_time": 0.0,
-                "points_converted": 0,
-                "sdk_version_used": self.sdk_version
-            }
-            return result
-        else:
-            result = {
-                "success": False,
-                "error": f"Unsupported output format: {output_format}",
-                "message": f"Supported formats: {', '.join(self.SUPPORTED_OUTPUT_FORMATS)}",
-                "output_file": None,
-                "conversion_time": 0.0,
-                "points_converted": 0,
-                "sdk_version_used": self.sdk_version
-            }
-            return result
+                "error": str(e),
+                "message": f"Conversion failed: {e}",
+                "conversion_time": conversion_time
+            })
+            self.logger.exception(f"Exception during Livox conversion: {e}")
+        
+        return result
     
     def get_vendor_info(self) -> Dict[str, Any]:
         """

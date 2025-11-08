@@ -358,17 +358,54 @@ class OusterWrapper(BaseVendorWrapper):
                 self.logger.error(result["error"])
                 return result
             
-            # Perform conversion using Python SDK
+            # Check laspy availability
+            if not LASPY_AVAILABLE:
+                result["error"] = "laspy not available - install with: pip install laspy"
+                result["message"] = "Cannot create LAS file: laspy package required"
+                self.logger.error(result["error"])
+                return result
+            
+            # Extract points using Python SDK
             if OUSTER_SDK_AVAILABLE:
-                result = self._convert_with_python_sdk(
+                points = self._convert_with_python_sdk(
                     input_path,
-                    output_path,
                     metadata_path,
                     sensor_model,
-                    preserve_intensity,
                     max_scans,
                     **kwargs
                 )
+                
+                # Convert points array to LAS
+                point_count = len(points)
+                
+                self.logger.debug(f"Writing LAS file: {output_path}")
+                
+                # Create LAS header
+                header = laspy.LasHeader(point_format=1, version="1.2")
+                header.x_scale = 0.001  # 1mm precision
+                header.y_scale = 0.001
+                header.z_scale = 0.001
+                header.x_offset = float(points[:, 0].mean())
+                header.y_offset = float(points[:, 1].mean())
+                header.z_offset = float(points[:, 2].mean())
+                
+                # Create LAS data
+                las_file = laspy.LasData(header)
+                las_file.x = points[:, 0]
+                las_file.y = points[:, 1]
+                las_file.z = points[:, 2]
+                las_file.intensity = points[:, 3].astype(np.uint16) if preserve_intensity else np.zeros(point_count, dtype=np.uint16)
+                
+                # Write LAS file
+                las_file.write(str(output_path))
+                
+                result.update({
+                    "success": True,
+                    "message": f"Successfully converted {point_count:,} points",
+                    "points_converted": point_count
+                })
+                
+                self.logger.info(f"LAS conversion complete: {point_count:,} points")
             else:
                 # Fallback to CLI if Python SDK not available
                 result = self._convert_with_cli(
@@ -406,21 +443,27 @@ class OusterWrapper(BaseVendorWrapper):
     def _convert_with_python_sdk(
         self,
         input_path: str,
-        output_path: str,
         metadata_path: str,
         sensor_model: Optional[str],
-        preserve_intensity: bool,
         max_scans: Optional[int],
         **kwargs
-    ) -> Dict[str, Any]:
-        """Convert using Ouster Python SDK."""
-        result = {
-            "success": False,
-            "message": "",
-            "points_converted": 0,
-            "error": None
-        }
+    ) -> np.ndarray:
+        """
+        Extract point cloud data from Ouster PCAP using Python SDK.
         
+        Args:
+            input_path: Path to input .pcap file
+            metadata_path: Path to .json metadata file
+            sensor_model: Optional sensor model (e.g., "OS1-64")
+            max_scans: Optional limit on number of scans to process
+            **kwargs: Additional parameters
+            
+        Returns:
+            numpy array with shape (N, 4) containing [x, y, z, intensity]
+            
+        Raises:
+            Exception: If extraction fails
+        """
         try:
             # Read sensor metadata
             self.logger.debug(f"Reading metadata: {metadata_path}")
@@ -434,12 +477,6 @@ class OusterWrapper(BaseVendorWrapper):
             # Precompute XYZ lookup table
             self.logger.debug("Computing XYZ lookup table...")
             xyzlut = XYZLut(metadata)
-            
-            # Check laspy availability
-            if not LASPY_AVAILABLE:
-                result["error"] = "laspy not available - install with: pip install laspy"
-                result["message"] = "Cannot create LAS file: laspy package required"
-                return result
             
             # Collect point cloud data
             all_points_list = []
@@ -496,51 +533,20 @@ class OusterWrapper(BaseVendorWrapper):
                     break
             
             if not all_points_list:
-                result["error"] = "No valid points found in PCAP file"
-                result["message"] = "Could not extract any valid point cloud data"
-                return result
+                raise ValueError("No valid points found in PCAP file")
             
             # Combine all points
             self.logger.debug("Combining all point clouds...")
             all_points = np.vstack(all_points_list)
             point_count = len(all_points)
             
-            # Create LAS file
-            self.logger.debug(f"Writing LAS file: {output_path}")
+            self.logger.info(f"Extracted {point_count:,} points from {scan_count} scans")
             
-            # Create LAS header
-            header = laspy.LasHeader(point_format=1, version="1.2")
-            header.x_scale = 0.001  # 1mm precision
-            header.y_scale = 0.001
-            header.z_scale = 0.001
-            header.x_offset = float(all_points[:, 0].mean())
-            header.y_offset = float(all_points[:, 1].mean())
-            header.z_offset = float(all_points[:, 2].mean())
-            
-            # Create LAS data
-            las_file = laspy.LasData(header)
-            las_file.x = all_points[:, 0]
-            las_file.y = all_points[:, 1]
-            las_file.z = all_points[:, 2]
-            las_file.intensity = all_points[:, 3].astype(np.uint16) if preserve_intensity else np.zeros(point_count, dtype=np.uint16)
-            
-            # Write LAS file
-            las_file.write(str(output_path))
-            
-            result.update({
-                "success": True,
-                "message": f"Successfully converted {point_count:,} points from {scan_count} scans",
-                "points_converted": point_count
-            })
-            
-            self.logger.info(f"Conversion complete: {point_count:,} points from {scan_count} scans")
+            return all_points
         
         except Exception as e:
-            result["error"] = str(e)
-            result["message"] = f"Python SDK conversion failed: {e}"
-            self.logger.exception(f"Error in Python SDK conversion: {e}")
-        
-        return result
+            self.logger.exception(f"Error extracting points with Python SDK: {e}")
+            raise
     
     def _convert_with_cli(
         self,
@@ -616,66 +622,201 @@ class OusterWrapper(BaseVendorWrapper):
             input_path: Path to input file
             output_format: Target format ("las", "laz", "pcd", "bin", "csv")
             output_path: Path where output file will be written
-            **kwargs: Additional parameters
+            **kwargs: Additional parameters (sensor_model, calibration_file, 
+                     preserve_intensity, max_scans, etc.)
             
         Returns:
             dict: Conversion result dictionary
         """
+        start_time = time.time()
         output_format = output_format.lower().lstrip(".")
         
-        if output_format == "las":
-            return self.convert_to_las(input_path, output_path, **kwargs)
-        elif output_format == "laz":
-            # Convert to LAS first, then compress
-            las_path = str(Path(output_path).with_suffix(".las"))
-            result = self.convert_to_las(input_path, las_path, **kwargs)
-            if result["success"]:
-                # Compress to LAZ (would need laszip or similar)
-                self.logger.warning("LAZ compression not yet implemented - returning LAS file")
-                result["output_file"] = las_path
-            return result
-        elif output_format == "pcd":
-            return self._convert_to_pcd(input_path, output_path, **kwargs)
-        elif output_format in ["bin", "csv"]:
-            result = {
-                "success": False,
-                "error": f"Output format '{output_format}' not yet implemented",
-                "message": "Only LAS format is currently supported",
-                "output_file": None,
-                "conversion_time": 0.0,
-                "points_converted": 0,
-                "sdk_version_used": self.sdk_version
-            }
-            return result
-        else:
-            result = {
-                "success": False,
-                "error": f"Unsupported output format: {output_format}",
-                "message": f"Supported formats: {', '.join(self.SUPPORTED_OUTPUT_FORMATS)}",
-                "output_file": None,
-                "conversion_time": 0.0,
-                "points_converted": 0,
-                "sdk_version_used": self.sdk_version
-            }
-            return result
-    
-    def _convert_to_pcd(
-        self,
-        input_path: str,
-        output_path: str,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """Convert to PCD format (placeholder for future implementation)."""
-        return {
+        result = {
             "success": False,
-            "error": "PCD format conversion not yet implemented",
-            "message": "PCD format support is planned for future release",
+            "message": "",
             "output_file": None,
             "conversion_time": 0.0,
             "points_converted": 0,
-            "sdk_version_used": self.sdk_version
+            "sdk_version_used": self.sdk_version,
+            "error": None
         }
+        
+        # Validate SDK availability
+        if not self.sdk_available:
+            result["error"] = "Ouster SDK is not available"
+            result["message"] = "Cannot convert: Ouster SDK not installed"
+            self.logger.error(result["error"])
+            return result
+        
+        # Validate input file
+        input_validation = self._validate_file_path(input_path, must_exist=True)
+        if not input_validation["valid"]:
+            result["error"] = input_validation["error"]
+            result["message"] = f"Input validation failed: {input_validation['error']}"
+            self.logger.error(result["error"])
+            return result
+        
+        # Validate output directory
+        output_validation = self._validate_output_directory(output_path)
+        if not output_validation["valid"]:
+            result["error"] = output_validation["error"]
+            result["message"] = f"Output validation failed: {output_validation['error']}"
+            self.logger.error(result["error"])
+            return result
+        
+        # Route to appropriate format handler
+        if output_format == "las":
+            return self.convert_to_las(input_path, output_path, **kwargs)
+        
+        # For all other formats, extract points first then convert
+        try:
+            input_path_obj = Path(input_path)
+            
+            # Resolve metadata file
+            calibration_file = kwargs.get('calibration_file')
+            if calibration_file and Path(calibration_file).exists():
+                metadata_path = calibration_file
+            else:
+                # Try to find companion .json file
+                json_path = input_path_obj.with_suffix(".json")
+                if json_path.exists():
+                    metadata_path = str(json_path)
+                else:
+                    # Search for any JSON file in the same directory
+                    json_files = list(input_path_obj.parent.glob("*.json"))
+                    if json_files:
+                        metadata_path = str(json_files[0])
+                        self.logger.info(f"Using metadata file: {metadata_path}")
+                    else:
+                        metadata_path = None
+            
+            if not metadata_path:
+                result["error"] = "Metadata file (.json) required for Ouster conversion"
+                result["message"] = "Provide calibration_file parameter or ensure .json file exists"
+                self.logger.error(result["error"])
+                return result
+            
+            # Extract points using Python SDK
+            if not OUSTER_SDK_AVAILABLE:
+                result["error"] = "Ouster Python SDK not available"
+                result["message"] = "Install with: pip install ouster-sdk"
+                self.logger.error(result["error"])
+                return result
+            
+            self.logger.info(f"Starting Ouster conversion: {input_path} -> {output_path} ({output_format})")
+            
+            points = self._convert_with_python_sdk(
+                input_path,
+                metadata_path,
+                kwargs.get('sensor_model'),
+                kwargs.get('max_scans'),
+                **kwargs
+            )
+            
+            # Convert to target format
+            preserve_intensity = kwargs.get('preserve_intensity', True)
+            
+            if output_format == "laz":
+                # Convert to LAS first, then compress
+                las_path = str(Path(output_path).with_suffix(".las"))
+                
+                # Check laspy availability
+                if not LASPY_AVAILABLE:
+                    result["error"] = "laspy not available - install with: pip install laspy"
+                    result["message"] = "Cannot create LAS file: laspy package required"
+                    self.logger.error(result["error"])
+                    return result
+                
+                # Create LAS file
+                point_count = len(points)
+                
+                self.logger.debug(f"Writing LAS file: {las_path}")
+                
+                # Create LAS header
+                header = laspy.LasHeader(point_format=1, version="1.2")
+                header.x_scale = 0.001  # 1mm precision
+                header.y_scale = 0.001
+                header.z_scale = 0.001
+                header.x_offset = float(points[:, 0].mean())
+                header.y_offset = float(points[:, 1].mean())
+                header.z_offset = float(points[:, 2].mean())
+                
+                # Create LAS data
+                las_file = laspy.LasData(header)
+                las_file.x = points[:, 0]
+                las_file.y = points[:, 1]
+                las_file.z = points[:, 2]
+                las_file.intensity = points[:, 3].astype(np.uint16) if preserve_intensity else np.zeros(point_count, dtype=np.uint16)
+                
+                # Write LAS file
+                las_file.write(str(las_path))
+                
+                # Compress to LAZ
+                compression_result = self._compress_las_to_laz(las_path, output_path)
+                
+                if compression_result["success"]:
+                    result.update({
+                        "success": True,
+                        "message": f"Successfully converted {point_count:,} points to LAZ",
+                        "points_converted": point_count,
+                        "output_file": compression_result["output_file"]
+                    })
+                    
+                    # Add warning if compression wasn't available
+                    if "warning" in compression_result:
+                        result["warning"] = compression_result["warning"]
+                else:
+                    result["error"] = compression_result.get("error", "LAZ compression failed")
+                    result["message"] = f"LAZ compression failed: {result['error']}"
+                    
+            elif output_format == "pcd":
+                format_result = self._points_to_pcd(points, output_path, preserve_intensity)
+                result.update(format_result)
+                if result["success"]:
+                    result["message"] = f"Successfully converted {result['points_converted']:,} points to PCD"
+                    
+            elif output_format == "bin":
+                format_result = self._points_to_bin(points, output_path)
+                result.update(format_result)
+                if result["success"]:
+                    result["message"] = f"Successfully converted {result['points_converted']:,} points to BIN"
+                    
+            elif output_format == "csv":
+                format_result = self._points_to_csv(points, output_path, preserve_intensity)
+                result.update(format_result)
+                if result["success"]:
+                    result["message"] = f"Successfully converted {result['points_converted']:,} points to CSV"
+                    
+            else:
+                result["error"] = f"Unsupported output format: {output_format}"
+                result["message"] = f"Supported formats: {', '.join(self.SUPPORTED_OUTPUT_FORMATS)}"
+                self.logger.error(result["error"])
+            
+            # Calculate conversion time
+            conversion_time = time.time() - start_time
+            result["conversion_time"] = conversion_time
+            result["sdk_version_used"] = self.sdk_version
+            
+            if result["success"]:
+                self.logger.info(
+                    f"Conversion completed: {result['points_converted']} points in {conversion_time:.2f}s"
+                )
+            else:
+                self.logger.error(f"Conversion failed: {result.get('error', 'Unknown error')}")
+        
+        except Exception as e:
+            conversion_time = time.time() - start_time
+            result.update({
+                "success": False,
+                "error": str(e),
+                "message": f"Conversion failed: {e}",
+                "conversion_time": conversion_time
+            })
+            self.logger.exception(f"Exception during Ouster conversion: {e}")
+        
+        return result
     
+
     def get_vendor_info(self) -> Dict[str, Any]:
         """
         Get Ouster vendor capabilities and information.
