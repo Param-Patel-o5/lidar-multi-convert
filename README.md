@@ -18,7 +18,7 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 - ✅ **Velodyne**: VLP-16, VLP-32C, HDL-32E, HDL-64E, VLS-128
 - ✅ **Livox**: Avia, Horizon, Tele-15, Mid-40/70 (All formats supported)
 - ✅ **Hesai**: PandarXT-32, PandarXT-16, Pandar64, Pandar40P, PandarQT (All formats supported)
-- 🚧 **RIEGL**: VUX series, miniVUX (planned)
+- 🚧 **RoboSense**: RS-LiDAR-M1, RS-Ruby, RS-Helios (planned)
 
 ## Supported Formats
 
@@ -329,7 +329,7 @@ Minimum confidence threshold: 14% for positive detection.
 - [x] ~~Add PCD, BIN, and CSV output formats~~
 - [x] ~~Add Hesai sensor support (PandarXT, Pandar64, Pandar40P)~~
 - [x] ~~Enable LAZ compression for all vendors (lazrs)~~
-- [ ] Add RIEGL sensor support (VUX series)
+- [ ] Add RoboSense sensor support (RS-LiDAR-M1, RS-Ruby, RS-Helios)
 - [ ] Add binary PCD format support
 - [ ] Add E57 and PLY format support
 - [ ] Create Docker container
