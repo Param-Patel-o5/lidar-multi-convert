@@ -17,29 +17,29 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 - ✅ **Ouster**: OS-0, OS-1, OS-2, OS-Dome series (16/32/64/128 channels)
 - ✅ **Velodyne**: VLP-16, VLP-32C, HDL-32E, HDL-64E, VLS-128
 - ✅ **Livox**: Avia, Horizon, Tele-15, Mid-40/70 (All formats supported)
-- 🚧 **Hesai**: PandarXT, Pandar64, Pandar40P (planned)
+- ✅ **Hesai**: PandarXT-32, PandarXT-16, Pandar64, Pandar40P, PandarQT (All formats supported)
 - 🚧 **RIEGL**: VUX series, miniVUX (planned)
 
 ## Supported Formats
 
 ### Input Formats
 
-| Format | Ouster | Velodyne | Livox | Notes |
-|--------|--------|----------|-------|-------|
-| PCAP   | ✅     | ✅       | ✅    | Requires metadata JSON for Ouster |
-| CSV    | ❌     | ❌       | ✅    | Livox Viewer export format |
-| LVX    | ❌     | ❌       | ✅    | Livox proprietary format |
-| LVX2   | ❌     | ❌       | ✅    | Livox proprietary format v2 |
+| Format | Ouster | Velodyne | Livox | Hesai | Notes |
+|--------|--------|----------|-------|-------|-------|
+| PCAP   | ✅     | ✅       | ✅    | ✅    | Requires metadata JSON for Ouster |
+| CSV    | ❌     | ❌       | ✅    | ❌    | Livox Viewer export format |
+| LVX    | ❌     | ❌       | ✅    | ❌    | Livox proprietary format |
+| LVX2   | ❌     | ❌       | ✅    | ❌    | Livox proprietary format v2 |
 
 ### Output Formats
 
-| Format | Ouster | Velodyne | Livox | Description | Best For |
-|--------|--------|----------|-------|-------------|----------|
-| **LAS** | ✅ | ✅ | ✅ | ASPRS LASer format (uncompressed) | GIS, surveying, general use |
-| **LAZ** | ✅ | ✅ | ✅ | Compressed LAS format | Storage optimization, archival |
-| **PCD** | ✅ | ✅ | ✅ | Point Cloud Data (PCL format) | Robotics, ROS, PCL tools |
-| **BIN** | ✅ | ✅ | ✅ | Binary format (KITTI standard) | Machine learning, autonomous driving |
-| **CSV** | ✅ | ✅ | ✅ | Comma-separated values | Data analysis, spreadsheets, custom processing |
+| Format | Ouster | Velodyne | Livox | Hesai | Description | Best For |
+|--------|--------|----------|-------|-------|-------------|----------|
+| **LAS** | ✅ | ✅ | ✅ | ✅ | ASPRS LASer format (uncompressed) | GIS, surveying, general use |
+| **LAZ** | ✅ | ✅ | ✅ | ✅ | Compressed LAS format | Storage optimization, archival |
+| **PCD** | ✅ | ✅ | ✅ | ✅ | Point Cloud Data (PCL format) | Robotics, ROS, PCL tools |
+| **BIN** | ✅ | ✅ | ✅ | ✅ | Binary format (KITTI standard) | Machine learning, autonomous driving |
+| **CSV** | ✅ | ✅ | ✅ | ✅ | Comma-separated values | Data analysis, spreadsheets, custom processing |
 
 **Legend:**
 - ✅ Fully supported
@@ -243,10 +243,11 @@ lidar-converter/
 
 The converter is optimized for fast processing with configurable scan limits:
 
-### Processing Speed (with --max-scans 10)
+### Processing Speed (with --max-scans 5-10)
 - **Ouster**: ~0.5s for 517K points
 - **Velodyne**: ~0.05s for 866 points  
-- **Livox**: ~11s for 1M points
+- **Livox**: ~3.5s for 500K points
+- **Hesai**: ~0.04s for 103 points
 
 ### Scan Limiting
 Use `--max-scans` to process only a portion of the file for faster testing:
@@ -311,11 +312,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 The system uses multiple detection methods with weighted confidence scoring:
 
-- **UDP Port Detection** (35% weight): Analyzes destination ports (Ouster: 7502/7503, Velodyne: 2368/2369)
-- **Packet Structure** (30% weight): Checks magic bytes in UDP payload (Ouster: 0x0001, Velodyne: 0xFFEE)
+- **UDP Port Detection** (35% weight): Analyzes destination ports (Ouster: 7502/7503, Velodyne/Hesai: 2368/2369, Livox: 57000)
+- **Packet Structure** (30% weight): Checks magic bytes in UDP payload (Ouster: 0x0001, Velodyne: 0xFFEE, Hesai: 0xEEFF)
 - **Magic Bytes** (30% weight): File header signatures
 - **Companion Files** (25% weight): Required metadata files (e.g., Ouster JSON)
-- **Packet Size** (20% weight): UDP payload size patterns
+- **Packet Size** (20% weight): UDP payload size patterns (Velodyne: 1206 bytes, Hesai: 861 bytes)
 - **File Extension** (5% weight): File extension hints
 
 Minimum confidence threshold: 14% for positive detection.
@@ -326,8 +327,8 @@ Minimum confidence threshold: 14% for positive detection.
 - [x] ~~Add Livox sensor support (Avia, Horizon)~~
 - [x] ~~Implement LAZ compression~~
 - [x] ~~Add PCD, BIN, and CSV output formats~~
-- [ ] Complete Livox multi-format support (PCD, BIN, CSV, LAZ)
-- [ ] Add Hesai sensor support (PandarXT, Pandar64)
+- [x] ~~Add Hesai sensor support (PandarXT, Pandar64, Pandar40P)~~
+- [x] ~~Enable LAZ compression for all vendors (lazrs)~~
 - [ ] Add RIEGL sensor support (VUX series)
 - [ ] Add binary PCD format support
 - [ ] Add E57 and PLY format support

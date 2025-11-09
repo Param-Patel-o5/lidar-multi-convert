@@ -7,9 +7,9 @@ provide consistent method signatures for seamless integration with converter.py.
 
 Supported Vendors:
     - Ouster: Full implementation
-    - Velodyne: Planned
-    - Hesai: Planned
-    - Livox: Planned
+    - Velodyne: Full implementation
+    - Hesai: Full implementation
+    - Livox: Full implementation
     - RIEGL: Planned
     - SICK: Planned
 """
@@ -18,11 +18,13 @@ from .base_wrapper import BaseVendorWrapper
 from .ouster_wrapper import OusterWrapper
 from .velodyne_wrapper import VelodyneWrapper
 from .livox_wrapper import LivoxWrapper
+from .hesai_wrapper import HesaiWrapper
 
 __all__ = [
     "BaseVendorWrapper",
     "OusterWrapper",
     "VelodyneWrapper",
     "LivoxWrapper",
+    "HesaiWrapper",
 ]
 
