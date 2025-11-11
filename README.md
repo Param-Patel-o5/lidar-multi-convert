@@ -84,12 +84,26 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 
 ## Installation
 
+[![PyPI version](https://img.shields.io/pypi/v/lidar-converter.svg)](https://pypi.org/project/lidar-converter/)
+[![Python versions](https://img.shields.io/pypi/pyversions/lidar-converter.svg)](https://pypi.org/project/lidar-converter/)
+
 ### Prerequisites
 
 - Python 3.8+
 - Microsoft Visual C++ Redistributable 2015-2022 (x64) for Windows
 
-### Setup
+### Install from PyPI (Recommended)
+
+```bash
+pip install lidar-converter
+```
+
+Verify installation:
+```bash
+lidar-converter health
+```
+
+### Install from Source (Alternative)
 
 1. Clone the repository:
 ```bash
