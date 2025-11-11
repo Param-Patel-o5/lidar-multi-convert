@@ -10,9 +10,12 @@ readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "Param Patel", email = ""}
+    {name = "Param Patel", email = "parampatel.005@gmail.com"}
 ]
-keywords = ["lidar", "point-cloud", "conversion", "ouster", "velodyne", "pcap", "las"]
+keywords = [
+    "lidar", "point-cloud", "conversion", "ouster", "velodyne", "livox", "hesai",
+    "roboSense", "pcap", "las", "laz", "csv", "pcd", "bin", "scientific", "geospatial"
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -50,7 +53,12 @@ dev = [
 ]
 
 [project.scripts]
-lidar-convert = "Lidar_Converter.cli:main"
+lidar-converter = "Lidar_Converter.cli:main"
+
+[project.urls]
+"Homepage" = "https://github.com/Param-Patel-o5/lidar-multi-convert"
+"Bug Tracker" = "https://github.com/Param-Patel-o5/lidar-multi-convert/issues"
+"Documentation" = "https://github.com/Param-Patel-o5/lidar-multi-convert#readme"
 
 [tool.setuptools]
 packages = ["Lidar_Converter"]
@@ -62,4 +70,3 @@ target-version = ['py38']
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
-
