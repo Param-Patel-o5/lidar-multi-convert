@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2024-11-18
+
 ### Added
 - **Hesai LiDAR Support** - Full support for Hesai sensors (PandarXT-32, PandarXT-16, Pandar64, Pandar40P, PandarQT)
   - Automatic vendor detection with 48% confidence scoring
@@ -20,23 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Compression ratio: 60-80% smaller than uncompressed LAS
   - Verified compression for Ouster, Velodyne, Livox, and Hesai
   - Typical compression: 3-15 bytes/point (vs 28-30 for uncompressed)
-
-### Changed
-- Updated README.md with Hesai support information
-- Updated vendor detection to include Hesai magic bytes (0xEEFF)
-- Updated UDP port detection to recognize Hesai port (2368)
-- Improved packet size detection for Hesai (861 bytes)
-- Enhanced documentation with Hesai packet structure details
-
-### Fixed
-- LAZ compression now works properly (was creating uncompressed files before)
-- Hesai packet parsing now correctly reads data from byte 12 (not byte 42)
-- Fixed block size calculation to use header information
-- Improved point filtering to remove invalid/noise points
-
-## [0.2.0] - 2025-11-10
-
-### Added
+- **PyPI Package Configuration** - Professional package setup for PyPI publishing
+  - MIT License file
+  - Contributing guidelines (CONTRIBUTING.md)
+  - Code of Conduct (CODE_OF_CONDUCT.md)
+  - Comprehensive tool configurations (black, pytest, flake8, mypy)
+  - Optional dependencies for development and documentation
+  - PyPI badges in README
 - Livox LiDAR support (Avia, Horizon, Tele-15, Mid-40/70, HAP)
 - Multiple output format support (PCD, BIN, CSV) in addition to LAS/LAZ
 - Batch conversion capability
@@ -44,9 +36,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive CLI with rich output formatting
 
 ### Changed
+- Updated README.md with Hesai support information and PyPI installation instructions
+- Updated vendor detection to include Hesai magic bytes (0xEEFF)
+- Updated UDP port detection to recognize Hesai port (2368)
+- Improved packet size detection for Hesai (861 bytes)
+- Enhanced documentation with Hesai packet structure details
 - Improved vendor detection with multi-method approach
 - Enhanced error handling and logging
 - Optimized performance with configurable scan limits
+- Fixed package discovery in pyproject.toml for proper subpackage inclusion
+
+### Fixed
+- Syntax error in __init__.py (missing closing quote in __all__)
+- LAZ compression now works properly (was creating uncompressed files before)
+- Hesai packet parsing now correctly reads data from byte 12 (not byte 42)
+- Fixed block size calculation to use header information
+- Improved point filtering to remove invalid/noise points
 
 ## [0.1.0] - 2025-11-01
 
