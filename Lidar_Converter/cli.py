@@ -38,8 +38,8 @@ try:
 except ImportError:
     TQDM_AVAILABLE = False
 
-from converter import LiDARConverter
-from detector import VendorDetector
+from .converter import LiDARConverter
+from .detector import VendorDetector
 
 # Initialize console for rich output
 if RICH_AVAILABLE:

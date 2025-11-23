@@ -31,8 +31,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
 import logging
 
-from detector import VendorDetector
-from Wrappers import OusterWrapper, VelodyneWrapper, LivoxWrapper, HesaiWrapper, BaseVendorWrapper
+from .detector import VendorDetector
+from .Wrappers import OusterWrapper, VelodyneWrapper, LivoxWrapper, HesaiWrapper, BaseVendorWrapper
 
 logger = logging.getLogger(__name__)
 
