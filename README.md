@@ -238,7 +238,6 @@ lidar-converter/
 │   ├── cli.py               # Command line interface
 │   ├── converter.py         # Main conversion orchestrator
 │   ├── detector.py          # Multi-method vendor detection
-│   ├── utils.py             # Utility functions
 │   ├── Wrappers/            # Vendor-specific wrappers
 │   │   ├── __init__.py
 │   │   ├── base_wrapper.py  # Abstract base class
