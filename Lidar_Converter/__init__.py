@@ -19,7 +19,7 @@ Supported Vendors:
 - Hesai (PandarXT-32, PandarXT-16, Pandar64, Pandar40P, PandarQT)
 
 Basic Usage:
-    >>> from lidar_converter import LiDARConverter, detect_vendor
+    >>> from Lidar_Converter import LiDARConverter, detect_vendor
     >>> 
     >>> # Convert a LiDAR file
     >>> converter = LiDARConverter()
@@ -39,7 +39,7 @@ Batch Processing:
     >>> successful = sum(1 for r in results if r["success"])
     >>> print(f"Converted {successful}/{len(files)} files")
 
-For more information, see: https://github.com/Param-Patel-o5/lidar-converter
+For more information, see: https://github.com/Param-Patel-o5/lidar-multi-convert
 """
 
 from .converter import LiDARConverter

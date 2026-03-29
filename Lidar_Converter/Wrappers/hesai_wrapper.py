@@ -690,109 +690,74 @@ class HesaiWrapper(BaseVendorWrapper):
             # Parse Hesai packet structure
             # Pre-header: 6 bytes (0xEEFF + version)
             # Header: 6 bytes starting at offset 6
-            
+
             # Read header information
             if len(payload) < 12:
                 return None
-            
+
             # Header at bytes 6-11 (read dynamically from packet)
-            channel_num = payload[6]  # Number of channels (e.g., 0x80 = 128)
-            block_num = payload[7]    # Number of blocks per packet (e.g., 0x02 = 2)
-            dis_unit_code = payload[9] if len(payload) > 9 else 0x04  # Distance unit
-            
-            # Distance unit: 0x04 = 4mm, 0x05 = 5mm, etc.
-            dis_unit = dis_unit_code / 1000.0  # Convert to meters multiplier
-            
-            # Body structure (flexible based on packet size)
-            # Standard structure: Pre-header (6) + Header (6) + Body + Tail
-            body_start = 12  # After pre-header and header
-            
-            # Tail size varies by packet type, but typically 34 bytes
-            # For different models, this might vary
-            # We'll estimate based on packet size
-            if len(payload) > 1100:  # Large packets (e.g., 1173 bytes from documentation)
-                tail_size = 34 + 17 + 32  # Tail + Functional Safety + Cyber Security
-            else:  # Smaller packets (e.g., 861 bytes)
-                tail_size = 34  # Just tail
-            
+            laser_num = payload[6]   # Actual number of channels (e.g. 128 for PandarXT-32)
+            block_num = payload[7]   # Number of blocks per packet (e.g. 2)
+            dis_unit_code = payload[9] if len(payload) > 9 else 4  # Distance unit in mm
+
+            # Body starts after pre-header (6) + header (6) = 12 bytes
+            body_start = 12
+            tail_size = 34  # Standard Hesai tail
             body_end = len(payload) - tail_size
-            body_size = body_end - body_start
-            
-            if body_size < 50:  # Minimum reasonable body size
-                return None
-            
-            # Parse data blocks
-            # Block size calculation based on header info
-            # If block_num is specified in header, use it
-            if block_num > 0:
-                # Calculate block size from body size and block count
-                block_size = body_size // block_num
-            else:
-                # Fallback: typical Hesai block size is 100-130 bytes
-                block_size = 100
-            
-            # Ensure block size is reasonable
-            if block_size < 50 or block_size > 200:
-                block_size = 100  # Fallback to typical size
-            
-            num_blocks = max(1, min(block_num if block_num > 0 else 10, body_size // block_size))
-            
+
+            # Correct block size: azimuth (2 bytes) + laser_num channels * 3 bytes each
+            correct_block_size = 2 + laser_num * 3
+            num_blocks = block_num if block_num > 0 else max(1, (body_end - body_start) // max(correct_block_size, 1))
+
             for block_idx in range(num_blocks):
-                block_offset = body_start + block_idx * block_size
-                
-                if block_offset + block_size > body_end:
+                block_offset = body_start + block_idx * correct_block_size
+
+                if block_offset + correct_block_size > body_end:
                     break
-                
+
                 try:
                     # Parse azimuth (first 2 bytes of block, little endian)
-                    # Azimuth range: 0-36000 (0.01 degree resolution)
                     if block_offset + 2 > len(payload):
                         break
-                    
+
                     azimuth_raw = struct.unpack('<H', payload[block_offset:block_offset+2])[0]
-                    
+
                     # Skip if azimuth is out of range
                     if azimuth_raw > 36000:
                         continue
-                    
+
                     azimuth = azimuth_raw / 100.0  # Convert to degrees
-                    
-                    # Parse channel data
-                    # Hesai typically has 32-128 channels depending on model
-                    # Each channel: distance (2 bytes) + reflectivity (1 byte) = 3 bytes
-                    channels_per_block = min(32, (block_size - 2) // 3)  # Subtract azimuth bytes
-                    
-                    for channel_idx in range(channels_per_block):
+
+                    # Parse all channels for this block using laser_num from header
+                    for channel_idx in range(laser_num):
                         channel_offset = block_offset + 2 + channel_idx * 3
-                        
+
                         if channel_offset + 3 > len(payload):
                             break
-                        
+
                         # Parse distance (2 bytes, little endian) and reflectivity (1 byte)
                         distance_raw = struct.unpack('<H', payload[channel_offset:channel_offset+2])[0]
                         reflectivity = payload[channel_offset+2]
-                        
-                        # Convert distance using unit from header
-                        # dis_unit_code 0x04 = 4mm, so distance_raw * 0.004 meters
+
+                        # Convert distance: raw * dis_unit_code mm -> meters
                         distance = distance_raw * (dis_unit_code / 1000.0)
-                        
-                        # Skip invalid points (0 distance or beyond max range)
-                        if distance <= 0.1 or distance > 200:  # Min 10cm, max 200m
+
+                        # Skip invalid points
+                        if distance <= 0.1 or distance > 200:
                             continue
-                        
+
                         # Skip low reflectivity (likely noise)
                         if reflectivity < 5:
                             continue
-                        
+
                         # Calculate elevation angle for this channel
                         elevation = self._get_elevation_angle(channel_idx, sensor_model)
-                        
+
                         # Convert polar to Cartesian coordinates
                         x, y, z = self._polar_to_cartesian(distance, azimuth, elevation)
-                        
-                        # Add point [x, y, z, intensity]
+
                         points.append([x, y, z, float(reflectivity)])
-                
+
                 except Exception as e:
                     # Skip problematic blocks
                     self.logger.debug(f"Error parsing block {block_idx}: {e}")

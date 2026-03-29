@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `requirements.txt` aligned with `pyproject.toml` runtime dependencies
+- `TESTING_GUIDE.md` with manual CLI examples, SDK / `pip` notes, and link to **[lidar-multi-convert](https://github.com/Param-Patel-o5/lidar-multi-convert)**; accurate `Lidar_Converter/CLI_README.md`
+
+### Changed
+- CLI program name in help text: `lidar-converter` (matches the PyPI package and console script)
+- **`pyproject.toml` `[project.urls]`** and docs now use the GitHub repo **`Param-Patel-o5/lidar-multi-convert`** (PyPI name stays `lidar-converter`)
+- Removed unused `click` dependency (CLI uses `argparse`)
+- README: project layout, install clone URL, SDK vs PCAP table, testing references
+
+### Removed
+- Duplicate `[tool.flake8]` block from `pyproject.toml` (use `.flake8` at repo root)
+- `[tool.pytest.ini_options]` from `pyproject.toml` (no bundled test suite)
+
 ## [0.2.0] - 2024-11-18
 
 ### Added
@@ -64,6 +78,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Command-line interface
 - Python API
 
-[Unreleased]: https://github.com/Param-Patel-o5/lidar-converter/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/Param-Patel-o5/lidar-converter/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/Param-Patel-o5/lidar-converter/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Param-Patel-o5/lidar-multi-convert/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Param-Patel-o5/lidar-multi-convert/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/Param-Patel-o5/lidar-multi-convert/releases/tag/v0.1.0

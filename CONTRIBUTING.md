@@ -12,8 +12,8 @@ Thank you for your interest in contributing to LiDAR Converter! We appreciate yo
 
 1. **Fork and clone the repository:**
 ```bash
-git clone https://github.com/YOUR_USERNAME/lidar-converter.git
-cd lidar-converter
+git clone https://github.com/Param-Patel-o5/lidar-multi-convert.git
+cd lidar-multi-convert
 ```
 
 2. **Create a virtual environment:**

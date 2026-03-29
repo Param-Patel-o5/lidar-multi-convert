@@ -6,11 +6,11 @@ This module provides a user-friendly CLI for converting LiDAR files
 across multiple vendors to standardized formats.
 
 Usage:
-    lidar-convert convert <input_file> -o <output_file>
-    lidar-convert batch <input_dir> -o <output_dir>
-    lidar-convert detect <input_file>
-    lidar-convert health
-    lidar-convert test <input_file>
+    lidar-converter convert <input_file> -o <output_file>
+    lidar-converter batch <input_dir> -o <output_dir>
+    lidar-converter detect <input_file>
+    lidar-converter health
+    lidar-converter test <input_file>
 """
 
 import sys
@@ -638,27 +638,27 @@ def cmd_test(args, config: Dict[str, Any]) -> int:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        prog="lidar-convert",
+        prog="lidar-converter",
         description="LiDAR conversion pipeline - Convert LiDAR files across multiple vendors",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Convert single file
-  lidar-convert convert data.pcap -o output.las
+  lidar-converter convert data.pcap -o output.las
   
   # Batch convert all pcap files
-  lidar-convert batch ./lidar_data -o ./converted --pattern "*.pcap"
+  lidar-converter batch ./lidar_data -o ./converted --pattern "*.pcap"
   
   # Detect vendor
-  lidar-convert detect data.pcap
+  lidar-converter detect data.pcap
   
   # Health check
-  lidar-convert health
+  lidar-converter health
   
   # Test pipeline
-  lidar-convert test data.pcap
+  lidar-converter test data.pcap
   
-For more information, see: https://github.com/Param-Patel-o5/lidar-converter
+For more information, see: https://github.com/Param-Patel-o5/lidar-multi-convert
         """
     )
     

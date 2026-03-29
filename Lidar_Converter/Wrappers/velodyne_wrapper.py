@@ -39,23 +39,14 @@ from dataclasses import dataclass
 
 # Velodyne SDK imports (with graceful fallback)
 VELODYNE_SDK_AVAILABLE = False
-velodyne = None
+velodyne_decoder = None
 
 try:
-    # Try to import any available Velodyne libraries
-    # Note: There's no standard Velodyne Python SDK, so we'll use generic parsing
-    import velodyne_decoder
+    import velodyne_decoder as velodyne_decoder
     VELODYNE_SDK_AVAILABLE = True
-    velodyne = velodyne_decoder
 except ImportError:
-    try:
-        # Alternative: check for other Velodyne libraries
-        import velodyne
-        VELODYNE_SDK_AVAILABLE = True
-    except ImportError:
-        # No Velodyne SDK available - will use dpkt fallback
-        VELODYNE_SDK_AVAILABLE = False
-        velodyne = None
+    VELODYNE_SDK_AVAILABLE = False
+    velodyne_decoder = None
 
 # PCAP parsing dependency (required for Velodyne)
 try:
@@ -145,6 +136,15 @@ class VelodyneWrapper(BaseVendorWrapper):
         "HDL-64E": 64,
         "VLS-128": 128,
     }
+
+    # Map model name strings to velodyne_decoder.Model enum values
+    MODEL_MAP = {
+        "VLP-16":   "VLP16",
+        "VLP-32C":  "VLP32C",
+        "HDL-32E":  "HDL32E",
+        "HDL-64E":  "HDL64E_S3",
+        "VLS-128":  "VLS128",
+    }
     
     def __init__(self, sdk_path: Optional[str] = None, raise_on_missing: bool = False):
         """
@@ -207,69 +207,28 @@ class VelodyneWrapper(BaseVendorWrapper):
             "error": None
         }
         
-        # Method 1: Check for Velodyne Python libraries
-        if VELODYNE_SDK_AVAILABLE and velodyne is not None:
+        # Method 1: Check for velodyne-decoder Python SDK (preferred)
+        if VELODYNE_SDK_AVAILABLE and velodyne_decoder is not None:
             try:
-                # Try to get version from velodyne package
-                version = "unknown"
-                if hasattr(velodyne, '__version__'):
-                    version = velodyne.__version__
-                else:
-                    # Try different methods to get version
-                    try:
-                        import importlib.metadata
-                        version = importlib.metadata.version('velodyne-decoder')
-                    except (ImportError, importlib.metadata.PackageNotFoundError):
-                        try:
-                            import pkg_resources
-                            version = pkg_resources.get_distribution('velodyne-decoder').version
-                        except:
-                            version = "installed"
-                
+                version = getattr(velodyne_decoder, '__version__', 'unknown')
                 result.update({
                     "available": True,
                     "version": version,
-                    "method": "python_package",
-                    "message": f"Velodyne Python SDK {version} is available"
+                    "method": "velodyne_decoder",
+                    "message": f"velodyne-decoder {version} is available"
                 })
                 return result
             except Exception as e:
-                self.logger.debug(f"Failed to get Python SDK version: {e}")
-        
-        # Method 2: Check for VeloView CLI tool
-        try:
-            cli_result = subprocess.run(
-                ["veloview", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if cli_result.returncode == 0:
-                version = cli_result.stdout.strip()
-                result.update({
-                    "available": True,
-                    "version": version,
-                    "method": "veloview_cli",
-                    "message": f"VeloView CLI tool {version} is available"
-                })
-                return result
-        except FileNotFoundError:
-            pass
-        except Exception as e:
-            self.logger.debug(f"Failed to check VeloView CLI: {e}")
-        
-        # Method 3: Check dpkt for generic PCAP parsing (fallback)
+                self.logger.debug(f"Failed to get velodyne-decoder version: {e}")
+
+        # Method 2: Check dpkt for generic PCAP parsing (fallback)
         if DPKT_AVAILABLE:
             try:
                 import importlib.metadata
                 dpkt_version = importlib.metadata.version('dpkt')
             except (ImportError, importlib.metadata.PackageNotFoundError):
-                try:
-                    import pkg_resources
-                    dpkt_version = pkg_resources.get_distribution('dpkt').version
-                except:
-                    dpkt_version = "installed"
-            
+                dpkt_version = "installed"
+
             result.update({
                 "available": True,
                 "version": f"dpkt-{dpkt_version}",
@@ -277,23 +236,11 @@ class VelodyneWrapper(BaseVendorWrapper):
                 "message": f"Using dpkt {dpkt_version} for generic PCAP parsing"
             })
             return result
-        
-        # Method 4: Check custom SDK path
-        if self.sdk_path:
-            sdk_dir = Path(self.sdk_path)
-            if sdk_dir.exists() and sdk_dir.is_dir():
-                result.update({
-                    "available": True,
-                    "installation_path": str(sdk_dir),
-                    "method": "custom_path",
-                    "message": f"Velodyne SDK found at custom path: {self.sdk_path}"
-                })
-                return result
-        
+
         # No processing capability found
         result.update({
             "available": False,
-            "error": "No Velodyne processing capability found. Install dpkt with: pip install dpkt",
+            "error": "No Velodyne processing capability found. Install with: pip install velodyne-decoder",
             "message": "Velodyne processing is not available"
         })
         return result
@@ -391,14 +338,23 @@ class VelodyneWrapper(BaseVendorWrapper):
                     self.logger.warning("Could not auto-detect sensor model, using VLP-16 as default")
                     sensor_model = "VLP-16"
             
-            # Extract points using refactored pipeline
-            points = self._convert_with_dpkt_parsing(
-                input_path,
-                sensor_model,
-                preserve_intensity,
-                max_scans,
-                **kwargs
-            )
+            # Extract points — prefer SDK, fall back to dpkt
+            if VELODYNE_SDK_AVAILABLE:
+                points = self._convert_with_sdk(
+                    input_path,
+                    sensor_model,
+                    preserve_intensity,
+                    max_scans,
+                    **kwargs
+                )
+            else:
+                points = self._convert_with_dpkt_parsing(
+                    input_path,
+                    sensor_model,
+                    preserve_intensity,
+                    max_scans,
+                    **kwargs
+                )
             
             if points is None:
                 result["error"] = "Failed to extract points from PCAP"
@@ -449,59 +405,84 @@ class VelodyneWrapper(BaseVendorWrapper):
     
     def _detect_sensor_model(self, input_path: str) -> Optional[str]:
         """
-        Attempt to auto-detect Velodyne sensor model from PCAP data.
-        
+        Detect Velodyne sensor model from filename hints.
+
+        velodyne-decoder requires the model to be specified; we infer it from
+        the filename since the packet format alone cannot distinguish models
+        (all use the same 1206-byte structure).
+
         Args:
             input_path: Path to PCAP file
-            
+
         Returns:
-            str: Detected sensor model or None if detection fails
+            str: Detected sensor model string or None
         """
-        try:
-            with open(input_path, 'rb') as f:
-                pcap = dpkt.pcap.Reader(f)
-                
-                # Check first few packets to determine channel count
-                packet_count = 0
-                max_packets = 10
-                
-                for ts, buf in pcap:
-                    packet_count += 1
-                    if packet_count > max_packets:
-                        break
-                    
-                    try:
-                        eth = dpkt.ethernet.Ethernet(buf)
-                        if eth.type != dpkt.ethernet.ETH_TYPE_IP:
-                            continue
-                        
-                        ip = eth.data
-                        if ip.p != dpkt.ip.IP_PROTO_UDP:
-                            continue
-                        
-                        udp = ip.data
-                        if udp.dport not in [2368, 2369]:  # Velodyne ports
-                            continue
-                        
-                        payload = udp.data
-                        if len(payload) != self.VELODYNE_PACKET_SIZE:
-                            continue
-                        
-                        # Check magic bytes
-                        if payload[:2] != self.VELODYNE_MAGIC_BYTES:
-                            continue
-                        
-                        # For now, return VLP-16 as default
-                        # More sophisticated detection could analyze packet structure
-                        return "VLP-16"
-                        
-                    except (dpkt.dpkt.NeedData, dpkt.dpkt.UnpackError, AttributeError):
-                        continue
-                        
-        except Exception as e:
-            self.logger.debug(f"Sensor model detection failed: {e}")
-        
+        name = Path(input_path).name.upper()
+        if "VLS128" in name or "VLS-128" in name:
+            return "VLS-128"
+        if "HDL64" in name or "HDL-64" in name:
+            return "HDL-64E"
+        if "HDL32" in name or "HDL-32" in name:
+            return "HDL-32E"
+        if "VLP32" in name or "VLP-32" in name:
+            return "VLP-32C"
+        if "VLP16" in name or "VLP-16" in name:
+            return "VLP-16"
         return None
+
+    def _convert_with_sdk(
+        self,
+        input_path: str,
+        sensor_model: str,
+        preserve_intensity: bool,
+        max_scans: Optional[int],
+        **kwargs
+    ) -> Optional[np.ndarray]:
+        """
+        Extract point cloud using velodyne-decoder SDK (preferred path).
+
+        Args:
+            input_path: Path to PCAP file
+            sensor_model: Velodyne model string (e.g. "VLP-16")
+            preserve_intensity: Whether to include intensity column
+            max_scans: Optional scan limit
+            **kwargs: Unused extra parameters
+
+        Returns:
+            Nx4 float32 array [x, y, z, intensity] or None on failure
+        """
+        model_name = self.MODEL_MAP.get(sensor_model, "VLP16")
+        try:
+            model_enum = getattr(velodyne_decoder.Model, model_name)
+        except AttributeError:
+            self.logger.warning(f"Unknown model '{model_name}', falling back to VLP16")
+            model_enum = velodyne_decoder.Model.VLP16
+
+        config = velodyne_decoder.Config(model=model_enum)
+        all_points = []
+        scan_count = 0
+
+        self.logger.info(f"Reading PCAP with velodyne-decoder (model={model_name}, max_scans={max_scans or 'unlimited'})...")
+        for stamp, scan in velodyne_decoder.read_pcap(input_path, config):
+            if scan is None or len(scan) == 0:
+                continue
+            # scan is Nx8 float32: x, y, z, intensity, time, column, row, return_type
+            pts = scan[:, :4].copy()  # keep x, y, z, intensity
+            if not preserve_intensity:
+                pts[:, 3] = 0.0
+            all_points.append(pts)
+            scan_count += 1
+            if max_scans and scan_count >= max_scans:
+                self.logger.info(f"Reached max_scans limit: {scan_count}")
+                break
+
+        if not all_points:
+            self.logger.error("No scans extracted from PCAP")
+            return None
+
+        result = np.vstack(all_points)
+        self.logger.info(f"Extracted {len(result):,} points from {scan_count} scans")
+        return result
     
     def _convert_with_dpkt_parsing(
         self,
@@ -858,13 +839,9 @@ class VelodyneWrapper(BaseVendorWrapper):
             # Route to appropriate format handler
             if output_format == "las":
                 # Extract points
-                points = self._convert_with_dpkt_parsing(
-                    input_path,
-                    sensor_model,
-                    preserve_intensity,
-                    max_scans,
-                    **kwargs
-                )
+                points = self._convert_with_sdk(input_path, sensor_model, preserve_intensity, max_scans, **kwargs) \
+                    if VELODYNE_SDK_AVAILABLE else \
+                    self._convert_with_dpkt_parsing(input_path, sensor_model, preserve_intensity, max_scans, **kwargs)
                 
                 if points is None:
                     result["error"] = "Failed to extract points from PCAP"
@@ -888,13 +865,9 @@ class VelodyneWrapper(BaseVendorWrapper):
                 
             elif output_format == "laz":
                 # Extract points
-                points = self._convert_with_dpkt_parsing(
-                    input_path,
-                    sensor_model,
-                    preserve_intensity,
-                    max_scans,
-                    **kwargs
-                )
+                points = self._convert_with_sdk(input_path, sensor_model, preserve_intensity, max_scans, **kwargs) \
+                    if VELODYNE_SDK_AVAILABLE else \
+                    self._convert_with_dpkt_parsing(input_path, sensor_model, preserve_intensity, max_scans, **kwargs)
                 
                 if points is None:
                     result["error"] = "Failed to extract points from PCAP"
@@ -931,13 +904,9 @@ class VelodyneWrapper(BaseVendorWrapper):
                     
             elif output_format == "pcd":
                 # Extract points
-                points = self._convert_with_dpkt_parsing(
-                    input_path,
-                    sensor_model,
-                    preserve_intensity,
-                    max_scans,
-                    **kwargs
-                )
+                points = self._convert_with_sdk(input_path, sensor_model, preserve_intensity, max_scans, **kwargs) \
+                    if VELODYNE_SDK_AVAILABLE else \
+                    self._convert_with_dpkt_parsing(input_path, sensor_model, preserve_intensity, max_scans, **kwargs)
                 
                 if points is None:
                     result["error"] = "Failed to extract points from PCAP"
@@ -960,13 +929,9 @@ class VelodyneWrapper(BaseVendorWrapper):
                     
             elif output_format == "bin":
                 # Extract points
-                points = self._convert_with_dpkt_parsing(
-                    input_path,
-                    sensor_model,
-                    preserve_intensity,
-                    max_scans,
-                    **kwargs
-                )
+                points = self._convert_with_sdk(input_path, sensor_model, preserve_intensity, max_scans, **kwargs) \
+                    if VELODYNE_SDK_AVAILABLE else \
+                    self._convert_with_dpkt_parsing(input_path, sensor_model, preserve_intensity, max_scans, **kwargs)
                 
                 if points is None:
                     result["error"] = "Failed to extract points from PCAP"
@@ -989,13 +954,9 @@ class VelodyneWrapper(BaseVendorWrapper):
                     
             elif output_format == "csv":
                 # Extract points
-                points = self._convert_with_dpkt_parsing(
-                    input_path,
-                    sensor_model,
-                    preserve_intensity,
-                    max_scans,
-                    **kwargs
-                )
+                points = self._convert_with_sdk(input_path, sensor_model, preserve_intensity, max_scans, **kwargs) \
+                    if VELODYNE_SDK_AVAILABLE else \
+                    self._convert_with_dpkt_parsing(input_path, sensor_model, preserve_intensity, max_scans, **kwargs)
                 
                 if points is None:
                     result["error"] = "Failed to extract points from PCAP"

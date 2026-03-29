@@ -158,13 +158,13 @@ class LivoxWrapper(BaseVendorWrapper):
     
     def validate_sdk_installation(self) -> Dict[str, Any]:
         """
-        Validate Livox SDK installation and detect available tools.
-        
-        Checks for (in priority order):
-        1. Livox Viewer CLI tools
-        2. pandas library for CSV parsing
-        3. Custom SDK path
-        
+        Validate Livox processing capability.
+
+        No installable Python SDK exists for Livox file conversion.
+        Priority order:
+        1. dpkt  — primary method for PCAP/LVX/LVX2 parsing
+        2. pandas — fallback for CSV-only input
+
         Returns:
             dict: Validation result with availability and version info
         """
@@ -174,112 +174,46 @@ class LivoxWrapper(BaseVendorWrapper):
             "installation_path": None,
             "method": None,
             "message": "",
-            "error": None
+            "error": None,
         }
-        
-        # Method 1: Check for openpylivox Python library
-        if LIVOX_SDK_AVAILABLE and openpylivox is not None:
-            try:
-                # openpylivox is available
-                version = "installed"
-                try:
-                    import importlib.metadata
-                    version = importlib.metadata.version('openpylivox-pkg')
-                except (ImportError, importlib.metadata.PackageNotFoundError):
-                    try:
-                        import pkg_resources
-                        version = pkg_resources.get_distribution('openpylivox-pkg').version
-                    except:
-                        version = "installed"
-                
-                result.update({
-                    "available": True,
-                    "version": f"openpylivox-{version}",
-                    "method": "openpylivox",
-                    "message": f"openpylivox {version} is available (for live sensor communication)"
-                })
-                return result
-            except Exception as e:
-                self.logger.debug(f"Failed to get openpylivox version: {e}")
-        
-        # Method 2: Check for Livox Viewer CLI
-        try:
-            # Livox Viewer doesn't have a standard CLI, but check if it's installed
-            livox_viewer_paths = [
-                "C:\\Program Files\\Livox\\Livox Viewer\\LivoxViewer.exe",
-                "C:\\Program Files (x86)\\Livox\\Livox Viewer\\LivoxViewer.exe",
-            ]
-            
-            for path in livox_viewer_paths:
-                if Path(path).exists():
-                    result.update({
-                        "available": True,
-                        "version": "Livox Viewer",
-                        "installation_path": path,
-                        "method": "livox_viewer",
-                        "message": f"Livox Viewer found at {path}"
-                    })
-                    return result
-        except Exception as e:
-            self.logger.debug(f"Failed to check Livox Viewer: {e}")
-        
-        # Method 3: Check dpkt for PCAP parsing (primary method)
+
+        # Method 1: dpkt — primary method (handles PCAP, LVX, LVX2)
         if DPKT_AVAILABLE:
             try:
                 import importlib.metadata
-                dpkt_version = importlib.metadata.version('dpkt')
-            except (ImportError, importlib.metadata.PackageNotFoundError):
-                try:
-                    import pkg_resources
-                    dpkt_version = pkg_resources.get_distribution('dpkt').version
-                except:
-                    dpkt_version = "installed"
-            
+                dpkt_version = importlib.metadata.version("dpkt")
+            except Exception:
+                dpkt_version = "installed"
+
             result.update({
                 "available": True,
                 "version": f"dpkt-{dpkt_version}",
                 "method": "dpkt_pcap",
-                "message": f"Using dpkt {dpkt_version} for PCAP parsing (primary method)"
+                "message": f"Using dpkt {dpkt_version} for PCAP/LVX parsing",
             })
             return result
-        
-        # Method 4: Check pandas for CSV parsing (fallback)
+
+        # Method 2: pandas — fallback for CSV input only
         if PANDAS_AVAILABLE:
             try:
                 import importlib.metadata
-                pandas_version = importlib.metadata.version('pandas')
-            except (ImportError, importlib.metadata.PackageNotFoundError):
-                try:
-                    import pkg_resources
-                    pandas_version = pkg_resources.get_distribution('pandas').version
-                except:
-                    pandas_version = "installed"
-            
+                pandas_version = importlib.metadata.version("pandas")
+            except Exception:
+                pandas_version = "installed"
+
             result.update({
                 "available": True,
                 "version": f"pandas-{pandas_version}",
                 "method": "pandas_csv",
-                "message": f"Using pandas {pandas_version} for CSV parsing"
+                "message": f"Using pandas {pandas_version} for CSV parsing (CSV input only)",
             })
             return result
-        
-        # Method 5: Check custom SDK path
-        if self.sdk_path:
-            sdk_dir = Path(self.sdk_path)
-            if sdk_dir.exists() and sdk_dir.is_dir():
-                result.update({
-                    "available": True,
-                    "installation_path": str(sdk_dir),
-                    "method": "custom_path",
-                    "message": f"Livox SDK found at custom path: {self.sdk_path}"
-                })
-                return result
-        
+
         # No processing capability found
         result.update({
             "available": False,
-            "error": "No Livox processing capability found. Install pandas with: pip install pandas",
-            "message": "Livox processing is not available"
+            "error": "No Livox processing capability found. Install dpkt: pip install dpkt",
+            "message": "Livox processing is not available",
         })
         return result
     
@@ -727,8 +661,9 @@ class LivoxWrapper(BaseVendorWrapper):
             # Try to parse as point cloud data
             # Livox point format: x, y, z (int32, mm), reflectivity (uint8), tag (uint8)
             # Total: 14 bytes per point
-            
-            offset = 24  # Skip header (approximate)
+            # Livox HAP/Mid-360 PCAP header is 32 bytes (not 24)
+
+            offset = 32  # Correct header size for Livox HAP/Mid-360 PCAP packets
             point_size = 14
             
             while offset + point_size <= len(payload):

@@ -92,6 +92,16 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 - Python 3.8+
 - Microsoft Visual C++ Redistributable 2015-2022 (x64) for Windows
 
+### SDK Notes
+
+| Vendor | SDK | Status |
+|--------|-----|--------|
+| Ouster | `ouster-sdk` (PyPI) | Full SDK — accurate point cloud extraction |
+| Velodyne | `velodyne-decoder` (PyPI) | Full SDK — supports VLP-16, VLP-32C, HDL-32E, HDL-64E, VLS-128 |
+| Hesai | C++ SDK (Linux only, bundled in `Wrappers/hesai_sdk/`) | dpkt-based parsing on Windows |
+| Livox | No Python SDK available | dpkt-based parsing for PCAP; native parser for LVX/LVX2 |
+
+
 ### Install from PyPI (Recommended)
 
 ```bash
@@ -107,8 +117,8 @@ lidar-converter health
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/Param-Patel-o5/lidar-converter.git
-cd lidar-converter
+git clone https://github.com/Param-Patel-o5/lidar-multi-convert.git
+cd lidar-multi-convert
 ```
 
 2. Create a virtual environment:
@@ -117,15 +127,30 @@ python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-3. Install dependencies:
+3. Install dependencies (editable install recommended for development):
 ```bash
 pip install -r requirements.txt
+pip install -e .
 ```
 
 4. Verify installation:
 ```bash
-python Lidar_Converter/cli.py health
+lidar-converter health
+# or: python -m Lidar_Converter.cli health
 ```
+
+### SDK vs PCAP parsing
+
+| Vendor | Typical PCAP path | Notes |
+|--------|-------------------|--------|
+| Ouster | **ouster-sdk** (Python, on PyPI) | Use the JSON metadata file next to the PCAP (same basename) or pass it with `-c`. |
+| Velodyne | **dpkt** + Python parsers | No Velodyne Python SDK on PyPI; PCAP decoding is in-repo. Optional VeloView desktop tools are separate. |
+| Livox | **dpkt** (PCAP) / CSV or LVX elsewhere | Optional **openpylivox** is not reliably available via `pip` here; PCAP still works with **dpkt**. |
+| Hesai | **dpkt** unless native lib built | **`Lidar_Converter/Wrappers/hesai_sdk/`** may contain the vendor C++ SDK sources; the wrapper uses native libs only if built (e.g. `PandarGeneralSDK.dll` under `build/`). Otherwise **dpkt** is used. |
+
+GitHub source repo: **[github.com/Param-Patel-o5/lidar-multi-convert](https://github.com/Param-Patel-o5/lidar-multi-convert)** (PyPI package name remains `lidar-converter`).
+
+Run `lidar-converter --log-level INFO health` once to see how each wrapper validated on your machine.
 
 ## Quick Start
 
@@ -232,24 +257,25 @@ python Lidar_Converter/cli.py convert data.pcap -o output.las --validate
 ## Project Structure
 
 ```
-lidar-converter/
-├── Lidar_Converter/          # Main package
+lidar-converter/   # PyPI name; clone: lidar-multi-convert
+├── pyproject.toml           # Package metadata and tool config
+├── requirements.txt         # Runtime deps (mirrors pyproject)
+├── README.md
+├── TESTING_GUIDE.md         # Manual CLI checks, SDK notes, Windows/Rich notes
+├── Lidar_Converter/         # Main package
 │   ├── __init__.py
 │   ├── cli.py               # Command line interface
 │   ├── converter.py         # Main conversion orchestrator
 │   ├── detector.py          # Multi-method vendor detection
-│   ├── Wrappers/            # Vendor-specific wrappers
-│   │   ├── __init__.py
-│   │   ├── base_wrapper.py  # Abstract base class
-│   │   ├── ouster_wrapper.py    # Ouster SDK wrapper
-│   │   ├── velodyne_wrapper.py  # Velodyne wrapper (dpkt-based)
-│   │   └── README.md        # Wrapper documentation
-│   ├── CLI_README.md        # CLI usage guide
-│   ├── TESTING_GUIDE.md     # Testing instructions
-│   └── pyproject.toml       # Package configuration
-├── requirements.txt         # Python dependencies
-├── .gitignore              # Git ignore rules
-└── README.md               # This file
+│   ├── CLI_README.md        # CLI reference (accurate for current argparse CLI)
+│   └── Wrappers/            # Vendor-specific wrappers
+│       ├── base_wrapper.py
+│       ├── ouster_wrapper.py
+│       ├── velodyne_wrapper.py
+│       ├── livox_wrapper.py
+│       ├── hesai_wrapper.py
+│       └── README.md
+└── .gitignore
 ```
 
 ## Performance
@@ -277,30 +303,15 @@ python Lidar_Converter/cli.py convert data.pcap -o output.las
 
 ## Development
 
-### Running Tests
+See **`TESTING_GUIDE.md`** for manual `detect` / `convert` command examples (all output formats), SDK notes, and Windows console tips.
+
+Quick checks:
 
 ```bash
-python -m pytest tests/
-```
-
-### Testing
-
-See `Lidar_Converter/TESTING_GUIDE.md` for comprehensive testing instructions.
-
-Quick test commands:
-
-```bash
-# Test system health
-python Lidar_Converter/cli.py health
-
-# Test vendor detection
-python Lidar_Converter/cli.py detect sample.pcap
-
-# Test conversion with limited scans (fast)
-python Lidar_Converter/cli.py convert sample.pcap -o test.las --max-scans 100
-
-# Run full pipeline test
-python Lidar_Converter/cli.py test sample.pcap
+lidar-converter --output-format json health
+lidar-converter --output-format json detect sample.pcap
+lidar-converter convert sample.pcap -o out.las --max-scans 100
+lidar-converter test sample.pcap
 ```
 
 ## Contributing
@@ -346,6 +357,6 @@ Minimum confidence threshold: 14% for positive detection.
 - [ ] Add binary PCD format support
 - [ ] Add E57 and PLY format support
 - [ ] Create Docker container
-- [ ] Add CI/CD pipeline
+- [ ] Add CI/CD pipeline (optional)
 - [ ] Performance optimizations (parallel processing)
 - [ ] Web interface for conversion

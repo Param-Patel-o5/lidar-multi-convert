@@ -43,6 +43,7 @@ datasets/
 *.pcd
 *.xyz
 *.txt
+!requirements.txt
 *.csv
 *.bin
 test_output.*
@@ -138,6 +139,7 @@ vc_redist.x64.exe
 results/
 temp/
 tmp/
+manual_convert_out/
 
 # SDK testing temporary files
 SDK _testing/__pycache__/
