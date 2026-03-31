@@ -15,20 +15,25 @@ The wrapper handles:
 - Vendor-specific metadata extraction
 
 Supported Hesai Models:
-- PandarXT-32 (32 channels) - Tested ✓
+- Pandar128E3X (128 channels) - Tested ✓ (sample data confirmed)
+- PandarXT-32 (32 channels)
 - PandarXT-16 (16 channels)
 - Pandar64 (64 channels)
 - Pandar40P (40 channels)
 - PandarQT (64 channels)
 
-Packet Structure (from official Hesai documentation):
+Packet Structure (Pandar128E3X, from official Hesai documentation):
 - Pre-header: 6 bytes (0xEEFF + protocol version)
-- Header: 6 bytes (channel num, block num, distance unit, flags)
-- Body: Variable bytes (point cloud data blocks)
-- Tail: 34 bytes (timestamp, factory info)
+- Header: 6 bytes (channel num=128, block num=2, dis_unit=4mm, flags)
+- Body: 772 bytes (2 blocks x 386 bytes each)
+- Functional Safety: 17 bytes
+- Tail: 56 bytes (timestamp, return mode, factory info)
+- CRC: 4 bytes
+Total UDP payload: 861 bytes (without cyber security signature)
 
-The wrapper dynamically reads packet structure from headers for flexibility
-across different Hesai models.
+The Pandar128E3X uses per-channel elevation AND azimuth correction tables
+from the official angle correction CSV file (not linear approximations).
+Vertical FOV: -25° to +15° (40° total), 128 channels.
 
 Usage:
     wrapper = HesaiWrapper()
@@ -120,12 +125,54 @@ class HesaiWrapper(BaseVendorWrapper):
     
     # Supported Hesai sensor models
     SUPPORTED_MODELS = [
-        "PandarXT",
+        "Pandar128E3X",  # 128 channels — confirmed model in sample data
         "PandarXT-32",
         "PandarXT-16",
         "Pandar64",
         "Pandar40P",
         "PandarQT",
+    ]
+
+    # Pandar128E3X per-channel angle correction tables (from official CSV).
+    # Index = channel_idx (0-based, channel 1 in CSV = index 0).
+    # Elevation (degrees): actual vertical angle for each laser.
+    # Azimuth offset (degrees): per-channel horizontal correction added to block azimuth.
+    PANDAR128_ELEVATION = [
+        14.436, 13.535, 13.081786, 12.624, 12.165246, 11.702, 11.238522, 10.771,
+        10.305007, 9.83, 9.356123, 8.88, 8.401321, 7.921, 7.43808, 6.952581,
+        6.466905, 5.977753, 5.487, 4.995801, 4.501, 4.007293, 3.509, 3.012822,
+        2.512, 2.013, 1.885, 1.761, 1.637, 1.511, 1.385875, 1.2582,
+        1.13, 1.008459, 0.88, 0.756, 0.63, 0.505, 0.378591, 0.251,
+        0.124, -0.00015, -0.129, -0.2541, -0.38, -0.5061259, -0.63235, -0.7597898,
+        -0.8872418, -1.012168, -1.141, -1.2662, -1.393, -1.519337, -1.646275, -1.773301,
+        -1.900587, -2.026912, -2.155, -2.2815, -2.409, -2.534932, -2.662501, -2.789024,
+        -2.916055, -3.043698, -3.172, -3.299, -3.425, -3.552222, -3.680335, -3.806265,
+        -3.932954, -4.06183, -4.19, -4.318, -4.444, -4.570508, -4.699079, -4.824327,
+        -4.950584, -5.080608, -5.209, -5.336, -5.463, -5.589088, -5.718031, -5.842508,
+        -5.968246, -6.099661, -6.607262, -7.117295, -7.624327, -8.133802, -8.639587, -9.149,
+        -9.652353, -10.16, -10.665443, -11.17, -11.671568, -12.174, -12.673194, -13.173,
+        -13.669682, -14.166, -14.660411, -15.154, -15.644783, -16.135, -16.622221, -17.106088,
+        -17.592171, -18.071976, -18.54765, -19.029597, -19.50071, -19.978461, -20.44479, -20.918108,
+        -21.37943, -21.848107, -22.30422, -22.768055, -23.21878, -23.677577, -24.12274, -25.01577,
+    ]
+
+    PANDAR128_AZIMUTH_OFFSET = [
+        3.257, 3.263, 1.091414, 3.268, 1.092504, 3.273, 1.093621, 3.278,
+        1.094766, 3.283, 1.095941, 3.288, 1.097146, 3.291, 1.098384, -1.101114,
+        1.099655, -1.103649, -3.306, -1.106118, -3.311, -1.108519, -3.318, -1.110852,
+        -3.324, -1.113115, 7.72, 5.535, 3.325, -3.33, 1.10673, -5.538034933,
+        -7.726107248, -1.115309, 7.731, 5.543, 3.329, -3.336, 1.108227, -5.546813133,
+        -7.738214933, -1.117431, 7.743, 5.550783, 3.335, -3.341759, 1.109762, -5.555361,
+        -7.750039, -1.119482, 7.757, 5.559905, 3.34, -3.347338, 1.111338, -5.564415,
+        -7.762486, -1.12146, 7.768, 5.568891, 3.345, -3.352812, 1.112953, -5.573332,
+        -7.774765, -1.123366, 7.78, 5.577739, 3.351, -3.358181, 1.114609, -5.582111,
+        -7.786874, -1.125199, 7.792, 5.586449, 3.356, -3.363443, 1.116305, -5.590751,
+        -7.798811, -1.126958, 7.804, 5.595019, 3.36, -3.368599, 1.118042, -5.599251,
+        -7.810576, -1.128643, -3.373647, -1.130255, -3.378587, -1.131792, -3.383419, 3.381,
+        -3.388143, 3.386, 1.127077, 3.39, 1.129045, 3.395, 1.131048, 3.401,
+        1.133088, 3.406, 1.135163, 3.41, 1.137272, 3.416, 1.139412, -1.142319,
+        1.141584, -1.143128, -3.425708, -1.143867, -3.429329, -1.144538, -3.432841, -1.14514,
+        -3.436242, -1.145675, -3.439533, -1.146145, -3.442714, -1.146549, -3.445786, -3.448749,
     ]
     
     # Supported input/output formats
@@ -572,10 +619,10 @@ class HesaiWrapper(BaseVendorWrapper):
             return None
         
         try:
-            # Auto-detect sensor model if not provided
+            # Auto-detect sensor model from packet header if not provided
             if not sensor_model:
-                sensor_model = "PandarXT-32"  # Default
-                self.logger.info(f"Using default sensor model: {sensor_model}")
+                sensor_model = self._detect_sensor_model_from_pcap(pcap_path)
+                self.logger.info(f"Using sensor model: {sensor_model}")
             
             # Open PCAP file
             self.logger.debug(f"Opening PCAP: {pcap_path}")
@@ -702,12 +749,15 @@ class HesaiWrapper(BaseVendorWrapper):
 
             # Body starts after pre-header (6) + header (6) = 12 bytes
             body_start = 12
-            tail_size = 34  # Standard Hesai tail
-            body_end = len(payload) - tail_size
-
-            # Correct block size: azimuth (2 bytes) + laser_num channels * 3 bytes each
+            # Pandar128E3X tail section: Functional Safety(17) + Tail(56) + CRC(4) = 77 bytes
+            # Older/smaller models use 34 bytes. Derive from packet size dynamically.
             correct_block_size = 2 + laser_num * 3
-            num_blocks = block_num if block_num > 0 else max(1, (body_end - body_start) // max(correct_block_size, 1))
+            expected_body = block_num * correct_block_size
+            tail_size = len(payload) - body_start - expected_body  # actual tail bytes
+            if tail_size < 0:
+                return None
+            body_end = body_start + expected_body
+            num_blocks = block_num if block_num > 0 else 1
 
             for block_idx in range(num_blocks):
                 block_offset = body_start + block_idx * correct_block_size
@@ -726,7 +776,7 @@ class HesaiWrapper(BaseVendorWrapper):
                     if azimuth_raw > 36000:
                         continue
 
-                    azimuth = azimuth_raw / 100.0  # Convert to degrees
+                    block_azimuth = azimuth_raw / 100.0  # Convert to degrees
 
                     # Parse all channels for this block using laser_num from header
                     for channel_idx in range(laser_num):
@@ -750,8 +800,10 @@ class HesaiWrapper(BaseVendorWrapper):
                         if reflectivity < 5:
                             continue
 
-                        # Calculate elevation angle for this channel
+                        # Calibrated elevation + per-channel azimuth offset
                         elevation = self._get_elevation_angle(channel_idx, sensor_model)
+                        azimuth_offset = self._get_azimuth_offset(channel_idx, sensor_model)
+                        azimuth = (block_azimuth + azimuth_offset) % 360.0
 
                         # Convert polar to Cartesian coordinates
                         x, y, z = self._polar_to_cartesian(distance, azimuth, elevation)
@@ -772,38 +824,94 @@ class HesaiWrapper(BaseVendorWrapper):
         
         return np.array(points, dtype=np.float32)
     
+    def _detect_sensor_model_from_pcap(self, pcap_path: str) -> str:
+        """
+        Detect Hesai sensor model by reading laser_num from the first valid packet.
+
+        laser_num is written into every packet header by the sensor itself,
+        so this is reliable without any external calibration file.
+        """
+        try:
+            with open(pcap_path, 'rb') as f:
+                pcap = dpkt.pcap.Reader(f)
+                for ts, buf in pcap:
+                    try:
+                        eth = dpkt.ethernet.Ethernet(buf)
+                        if eth.type != dpkt.ethernet.ETH_TYPE_IP:
+                            continue
+                        ip = eth.data
+                        if ip.p != dpkt.ip.IP_PROTO_UDP:
+                            continue
+                        udp = ip.data
+                        if udp.dport != self.HESAI_UDP_PORT:
+                            continue
+                        payload = udp.data
+                        if len(payload) < 8 or payload[:2] != self.HESAI_MAGIC_BYTES:
+                            continue
+                        laser_num = payload[6]
+                        if laser_num == 128:
+                            return "Pandar128E3X"
+                        elif laser_num == 64:
+                            return "Pandar64"
+                        elif laser_num == 40:
+                            return "Pandar40P"
+                        elif laser_num == 32:
+                            return "PandarXT-32"
+                        elif laser_num == 16:
+                            return "PandarXT-16"
+                    except Exception:
+                        continue
+        except Exception as e:
+            self.logger.debug(f"Model detection failed: {e}")
+        return "PandarXT-32"  # safe fallback
+
     def _get_elevation_angle(self, channel_idx: int, sensor_model: str) -> float:
         """
-        Get elevation angle for a channel (simplified approximation).
-        
-        In a real implementation, this would use calibration data from the sensor.
-        
+        Return the calibrated elevation angle for a channel.
+
+        For Pandar128E3X uses the official per-channel table from the
+        angle correction CSV. Other models use linear approximations.
+
         Args:
-            channel_idx: Channel index
-            sensor_model: Sensor model identifier
-            
+            channel_idx: 0-based channel index
+            sensor_model: Sensor model string
+
         Returns:
             float: Elevation angle in degrees
         """
-        # Simplified elevation angles (degrees)
-        if "XT-32" in sensor_model or "XT32" in sensor_model:
-            # PandarXT-32 has channels from +15° to -16°
+        if "128" in sensor_model or "Pandar128" in sensor_model:
+            if 0 <= channel_idx < len(self.PANDAR128_ELEVATION):
+                return self.PANDAR128_ELEVATION[channel_idx]
+            return 0.0
+        elif "XT-32" in sensor_model or "XT32" in sensor_model:
             return 15.0 - (channel_idx * 31.0 / 31.0)
         elif "XT-16" in sensor_model or "XT16" in sensor_model:
-            # PandarXT-16 has channels from +15° to -16°
             return 15.0 - (channel_idx * 31.0 / 15.0)
-        elif "Pandar64" in sensor_model or "64" in sensor_model:
-            # Pandar64 spans approximately +15° to -25°
+        elif "64" in sensor_model:
             return 15.0 - (channel_idx * 40.0 / 63.0)
-        elif "Pandar40" in sensor_model or "40P" in sensor_model:
-            # Pandar40P spans approximately +15° to -25°
+        elif "40" in sensor_model:
             return 15.0 - (channel_idx * 40.0 / 39.0)
         elif "QT" in sensor_model:
-            # PandarQT spans approximately +52.1° to -52.1°
             return 52.1 - (channel_idx * 104.2 / 63.0)
-        else:
-            # Default fallback
-            return 0.0
+        return 0.0
+
+    def _get_azimuth_offset(self, channel_idx: int, sensor_model: str) -> float:
+        """
+        Return the per-channel azimuth correction offset.
+
+        For Pandar128E3X uses the official table. Other models return 0.
+
+        Args:
+            channel_idx: 0-based channel index
+            sensor_model: Sensor model string
+
+        Returns:
+            float: Azimuth correction in degrees
+        """
+        if "128" in sensor_model or "Pandar128" in sensor_model:
+            if 0 <= channel_idx < len(self.PANDAR128_AZIMUTH_OFFSET):
+                return self.PANDAR128_AZIMUTH_OFFSET[channel_idx]
+        return 0.0
     
     def _polar_to_cartesian(self, distance: float, azimuth: float, elevation: float) -> Tuple[float, float, float]:
         """

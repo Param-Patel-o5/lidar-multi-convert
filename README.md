@@ -17,7 +17,7 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 - ✅ **Ouster**: OS-0, OS-1, OS-2, OS-Dome series (16/32/64/128 channels)
 - ✅ **Velodyne**: VLP-16, VLP-32C, HDL-32E, HDL-64E, VLS-128
 - ✅ **Livox**: Avia, Horizon, Tele-15, Mid-40/70 (All formats supported)
-- ✅ **Hesai**: PandarXT-32, PandarXT-16, Pandar64, Pandar40P, PandarQT (All formats supported)
+- ✅ **Hesai**: Pandar128E3X (128ch, calibrated angle tables), PandarXT-32, PandarXT-16, Pandar64, Pandar40P, PandarQT
 - 🚧 **RoboSense**: RS-LiDAR-M1, RS-Ruby, RS-Helios (planned)
 
 ## Supported Formats
@@ -98,7 +98,7 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 |--------|-----|--------|
 | Ouster | `ouster-sdk` (PyPI) | Full SDK — accurate point cloud extraction |
 | Velodyne | `velodyne-decoder` (PyPI) | Full SDK — supports VLP-16, VLP-32C, HDL-32E, HDL-64E, VLS-128 |
-| Hesai | C++ SDK (Linux only, bundled in `Wrappers/hesai_sdk/`) | dpkt-based parsing on Windows |
+| Hesai | C++ SDK (Linux only, bundled in `Wrappers/hesai_sdk/`) | dpkt-based parsing on Windows with official Pandar128E3X angle correction tables |
 | Livox | No Python SDK available | dpkt-based parsing for PCAP; native parser for LVX/LVX2 |
 
 
@@ -146,7 +146,7 @@ lidar-converter health
 | Ouster | **ouster-sdk** (PyPI, C++ bindings) | Requires companion `.json` metadata file next to the PCAP. |
 | Velodyne | **velodyne-decoder** (PyPI, C++ bindings) | Model auto-detected from filename; dpkt used as fallback if not installed. |
 | Livox | **dpkt** (PCAP) / native parser (LVX/LVX2) | No Python SDK exists for file conversion. dpkt is the primary method. |
-| Hesai | **dpkt** (Windows) / C++ SDK if built on Linux | Bundled C++ SDK in `Wrappers/hesai_sdk/` requires Linux + CMake to compile. dpkt used on Windows. |
+| Hesai | **dpkt** (Windows) / C++ SDK if built on Linux | Model auto-detected from packet header (`laser_num`). Pandar128E3X uses official per-channel elevation + azimuth correction tables from the angle correction CSV. |
 
 GitHub source repo: **[github.com/Param-Patel-o5/lidar-multi-convert](https://github.com/Param-Patel-o5/lidar-multi-convert)** (PyPI package name remains `lidar-converter`).
 
@@ -289,7 +289,7 @@ The converter is optimized for fast processing with configurable scan limits:
 | Ouster OS (urban drive) | ouster-sdk (C++) | 11,353,627 | 8.73s | ~1.3M/s |
 | Velodyne VLP-16 | velodyne-decoder (C++) | 1,014,855 | 0.52s | ~2.0M/s |
 | Velodyne VLS-128 | velodyne-decoder (C++) | 5,568,032 | 4.16s | ~1.3M/s |
-| Hesai PandarXT-32 | dpkt (Python) | 5,810 | 0.13s | ~45K/s |
+| Hesai Pandar128E3X | dpkt (Python) | 12,026 | 0.16s | ~75K/s |
 | Livox HAP (PCAP) | dpkt (Python) | 100,008 | 0.77s | ~130K/s |
 
 SDK-backed vendors (Ouster, Velodyne) process **1–2 million points/second** — comparable to industry-standard tools. dpkt-based vendors (Hesai, Livox) are **10–30x slower** because all packet parsing happens in pure Python. For Hesai and Livox, use `--max-scans` to limit processing during development.
