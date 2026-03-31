@@ -141,16 +141,16 @@ lidar-converter health
 
 ### SDK vs PCAP parsing
 
-| Vendor | Typical PCAP path | Notes |
+| Vendor | Conversion backend | Notes |
 |--------|-------------------|--------|
-| Ouster | **ouster-sdk** (Python, on PyPI) | Use the JSON metadata file next to the PCAP (same basename) or pass it with `-c`. |
-| Velodyne | **dpkt** + Python parsers | No Velodyne Python SDK on PyPI; PCAP decoding is in-repo. Optional VeloView desktop tools are separate. |
-| Livox | **dpkt** (PCAP) / CSV or LVX elsewhere | Optional **openpylivox** is not reliably available via `pip` here; PCAP still works with **dpkt**. |
-| Hesai | **dpkt** unless native lib built | **`Lidar_Converter/Wrappers/hesai_sdk/`** may contain the vendor C++ SDK sources; the wrapper uses native libs only if built (e.g. `PandarGeneralSDK.dll` under `build/`). Otherwise **dpkt** is used. |
+| Ouster | **ouster-sdk** (PyPI, C++ bindings) | Requires companion `.json` metadata file next to the PCAP. |
+| Velodyne | **velodyne-decoder** (PyPI, C++ bindings) | Model auto-detected from filename; dpkt used as fallback if not installed. |
+| Livox | **dpkt** (PCAP) / native parser (LVX/LVX2) | No Python SDK exists for file conversion. dpkt is the primary method. |
+| Hesai | **dpkt** (Windows) / C++ SDK if built on Linux | Bundled C++ SDK in `Wrappers/hesai_sdk/` requires Linux + CMake to compile. dpkt used on Windows. |
 
 GitHub source repo: **[github.com/Param-Patel-o5/lidar-multi-convert](https://github.com/Param-Patel-o5/lidar-multi-convert)** (PyPI package name remains `lidar-converter`).
 
-Run `lidar-converter --log-level INFO health` once to see how each wrapper validated on your machine.
+Run `lidar-converter health` to confirm which backend each wrapper is using on your machine.
 
 ## Quick Start
 
@@ -282,11 +282,17 @@ lidar-converter/   # PyPI name; clone: lidar-multi-convert
 
 The converter is optimized for fast processing with configurable scan limits:
 
-### Processing Speed (with --max-scans 5-10)
-- **Ouster**: ~0.5s for 517K points
-- **Velodyne**: ~0.05s for 866 points  
-- **Livox**: ~3.5s for 500K points
-- **Hesai**: ~0.04s for 103 points
+### Processing Speed (50 scans, measured on real sample data)
+
+| Vendor | Backend | Points | Time | Pts/sec |
+|--------|---------|--------|------|---------|
+| Ouster OS (urban drive) | ouster-sdk (C++) | 11,353,627 | 8.73s | ~1.3M/s |
+| Velodyne VLP-16 | velodyne-decoder (C++) | 1,014,855 | 0.52s | ~2.0M/s |
+| Velodyne VLS-128 | velodyne-decoder (C++) | 5,568,032 | 4.16s | ~1.3M/s |
+| Hesai PandarXT-32 | dpkt (Python) | 5,810 | 0.13s | ~45K/s |
+| Livox HAP (PCAP) | dpkt (Python) | 100,008 | 0.77s | ~130K/s |
+
+SDK-backed vendors (Ouster, Velodyne) process **1–2 million points/second** — comparable to industry-standard tools. dpkt-based vendors (Hesai, Livox) are **10–30x slower** because all packet parsing happens in pure Python. For Hesai and Livox, use `--max-scans` to limit processing during development.
 
 ### Scan Limiting
 Use `--max-scans` to process only a portion of the file for faster testing:
