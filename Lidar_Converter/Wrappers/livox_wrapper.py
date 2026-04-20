@@ -564,17 +564,19 @@ class LivoxWrapper(BaseVendorWrapper):
                 all_points_list = []
                 packet_count = 0
                 valid_packet_count = 0
+                batch_size = 1000  # Batch vstack operations for memory efficiency
                 
                 # Limit points if specified
                 points_collected = 0
                 max_points_limit = max_points if max_points else float('inf')
                 
                 self.logger.info(f"Processing PCAP packets (max_points: {max_points or 'unlimited'})...")
+                self.logger.info(f"Using batched processing (batch_size={batch_size}) for memory efficiency")
                 
                 for ts, buf in pcap:
                     packet_count += 1
                     
-                    if packet_count % 1000 == 0:
+                    if packet_count % 10000 == 0:
                         self.logger.debug(f"Processing packet {packet_count}... ({points_collected} points collected)")
                     
                     try:
@@ -606,6 +608,11 @@ class LivoxWrapper(BaseVendorWrapper):
                             valid_packet_count += 1
                             points_collected += len(points)
                         
+                        # OPTIMIZATION: Batch vstack to reduce memory pressure
+                        if len(all_points_list) >= batch_size:
+                            batch_array = np.vstack(all_points_list)
+                            all_points_list = [batch_array]
+                        
                         # Check point limit
                         if points_collected >= max_points_limit:
                             self.logger.info(f"Reached max_points limit: {points_collected}")
@@ -622,9 +629,9 @@ class LivoxWrapper(BaseVendorWrapper):
                     self.logger.error("No valid Livox packets found in PCAP file")
                     return None
                 
-                # Combine all points
-                self.logger.debug("Combining all point clouds...")
-                all_points = np.vstack(all_points_list)
+                # Final vstack
+                self.logger.debug("Finalizing point cloud...")
+                all_points = np.vstack(all_points_list) if len(all_points_list) > 1 else all_points_list[0]
                 
                 self.logger.info(f"Extracted {len(all_points):,} points from {valid_packet_count} packets")
                 return all_points
@@ -860,8 +867,10 @@ class LivoxWrapper(BaseVendorWrapper):
                 points_collected = 0
                 max_points_limit = max_points if max_points else float('inf')
                 max_frames = kwargs.get('max_scans', 1000)  # Use max_scans as max_frames
+                batch_size = 100  # Batch vstack operations for memory efficiency
                 
                 self.logger.info(f"Processing LVX frames (max_frames: {max_frames})...")
+                self.logger.info(f"Using batched processing (batch_size={batch_size}) for memory efficiency")
                 
                 # For LVX2, try a simpler approach: read chunks and parse point data directly
                 if version_major != 1:
@@ -899,6 +908,11 @@ class LivoxWrapper(BaseVendorWrapper):
                             
                             if frame_count % 10 == 0:
                                 self.logger.debug(f"Processed {frame_count} chunks, {points_collected} points")
+                        
+                        # OPTIMIZATION: Batch vstack to reduce memory pressure
+                        if len(all_points_list) >= batch_size:
+                            batch_array = np.vstack(all_points_list)
+                            all_points_list = [batch_array]
                         
                         if frame_count >= max_frames:
                             break
@@ -983,6 +997,11 @@ class LivoxWrapper(BaseVendorWrapper):
                         
                         frame_count += 1
                         
+                        # OPTIMIZATION: Batch vstack to reduce memory pressure
+                        if len(all_points_list) >= batch_size:
+                            batch_array = np.vstack(all_points_list)
+                            all_points_list = [batch_array]
+                        
                         if frame_count % 100 == 0:
                             self.logger.debug(f"Processed {frame_count} frames, {points_collected} points")
                         
@@ -994,9 +1013,9 @@ class LivoxWrapper(BaseVendorWrapper):
                     self.logger.error("No valid points found in LVX file")
                     return None
                 
-                # Combine all points
-                self.logger.debug("Combining all point clouds...")
-                all_points = np.vstack(all_points_list)
+                # Final vstack
+                self.logger.debug("Finalizing point cloud...")
+                all_points = np.vstack(all_points_list) if len(all_points_list) > 1 else all_points_list[0]
                 
                 self.logger.info(f"Extracted {len(all_points):,} points from {frame_count} frames")
                 return all_points

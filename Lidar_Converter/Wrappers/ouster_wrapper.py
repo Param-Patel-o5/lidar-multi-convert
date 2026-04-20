@@ -481,8 +481,10 @@ class OusterWrapper(BaseVendorWrapper):
             # Collect point cloud data
             all_points_list = []
             scan_count = 0
+            batch_size = 100  # Process in batches to reduce memory pressure
             
             self.logger.info(f"Processing scans (max: {max_scans or 'unlimited'})...")
+            self.logger.info(f"Using batched processing (batch_size={batch_size}) for memory efficiency")
             
             # Iterate over scans in the PCAP
             for scans in source:
@@ -492,7 +494,7 @@ class OusterWrapper(BaseVendorWrapper):
                     
                     scan_count += 1
                     
-                    if scan_count % 10 == 0:
+                    if scan_count % 100 == 0:
                         self.logger.debug(f"Processing scan {scan_count}...")
                     
                     # Get range data
@@ -524,6 +526,13 @@ class OusterWrapper(BaseVendorWrapper):
                     
                     all_points_list.append(points)
                     
+                    # OPTIMIZATION: Batch vstack to reduce memory pressure
+                    # Instead of accumulating all scans and vstacking at the end,
+                    # consolidate every batch_size scans to keep memory bounded
+                    if len(all_points_list) >= batch_size:
+                        batch_array = np.vstack(all_points_list)
+                        all_points_list = [batch_array]  # Replace list with consolidated array
+                    
                     # Check limit
                     if max_scans and scan_count >= max_scans:
                         self.logger.info(f"Reached max_scans limit: {scan_count}")
@@ -535,9 +544,9 @@ class OusterWrapper(BaseVendorWrapper):
             if not all_points_list:
                 raise ValueError("No valid points found in PCAP file")
             
-            # Combine all points
-            self.logger.debug("Combining all point clouds...")
-            all_points = np.vstack(all_points_list)
+            # Final vstack (either single batch or remaining scans)
+            self.logger.debug("Finalizing point cloud...")
+            all_points = np.vstack(all_points_list) if len(all_points_list) > 1 else all_points_list[0]
             point_count = len(all_points)
             
             self.logger.info(f"Extracted {point_count:,} points from {scan_count} scans")

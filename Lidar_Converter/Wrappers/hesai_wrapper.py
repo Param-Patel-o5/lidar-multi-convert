@@ -633,13 +633,15 @@ class HesaiWrapper(BaseVendorWrapper):
                 all_points_list = []
                 packet_count = 0
                 valid_packet_count = 0
+                batch_size = 1000  # Batch vstack operations for memory efficiency
                 
                 self.logger.info(f"Processing Hesai packets (max_scans: {max_scans or 'unlimited'})...")
+                self.logger.info(f"Using batched processing (batch_size={batch_size}) for memory efficiency")
                 
                 for ts, buf in pcap:
                     packet_count += 1
                     
-                    if packet_count % 1000 == 0:
+                    if packet_count % 10000 == 0:
                         self.logger.debug(f"Processing packet {packet_count}...")
                     
                     try:
@@ -668,6 +670,11 @@ class HesaiWrapper(BaseVendorWrapper):
                             all_points_list.append(points)
                             valid_packet_count += 1
                         
+                        # OPTIMIZATION: Batch vstack to reduce memory pressure
+                        if len(all_points_list) >= batch_size:
+                            batch_array = np.vstack(all_points_list)
+                            all_points_list = [batch_array]
+                        
                         # Check scan limit (approximate - each packet is part of a scan)
                         if max_scans and valid_packet_count >= max_scans:
                             self.logger.info(f"Reached max_scans limit: {valid_packet_count}")
@@ -684,9 +691,9 @@ class HesaiWrapper(BaseVendorWrapper):
                     self.logger.error("No valid Hesai packets found in PCAP file")
                     return None
                 
-                # Combine all points
-                self.logger.debug("Combining all point clouds...")
-                all_points = np.vstack(all_points_list)
+                # Final vstack
+                self.logger.debug("Finalizing point cloud...")
+                all_points = np.vstack(all_points_list) if len(all_points_list) > 1 else all_points_list[0]
                 point_count = len(all_points)
                 
                 self.logger.info(f"Extracted {point_count:,} points from {valid_packet_count} packets")

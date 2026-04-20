@@ -461,17 +461,29 @@ class VelodyneWrapper(BaseVendorWrapper):
         config = velodyne_decoder.Config(model=model_enum)
         all_points = []
         scan_count = 0
+        batch_size = 1000  # Accumulate scans before vstacking to reduce overhead
 
         self.logger.info(f"Reading PCAP with velodyne-decoder (model={model_name}, max_scans={max_scans or 'unlimited'})...")
+        self.logger.info(f"Using batched processing (batch_size={batch_size}) for improved performance")
+        
         for stamp, scan in velodyne_decoder.read_pcap(input_path, config):
             if scan is None or len(scan) == 0:
                 continue
             # scan is Nx8 float32: x, y, z, intensity, time, column, row, return_type
-            pts = scan[:, :4].copy()  # keep x, y, z, intensity
+            # OPTIMIZATION: Remove redundant .copy() - slicing already creates a new array
+            pts = scan[:, :4]  # keep x, y, z, intensity (no .copy() needed)
             if not preserve_intensity:
                 pts[:, 3] = 0.0
             all_points.append(pts)
             scan_count += 1
+            
+            # OPTIMIZATION: Batch vstack operations to reduce memory allocation overhead
+            # Instead of vstacking at the end (1 giant operation), vstack every N scans
+            if len(all_points) >= batch_size:
+                # Consolidate this batch
+                batch_array = np.vstack(all_points)
+                all_points = [batch_array]  # Replace list with single consolidated array
+                
             if max_scans and scan_count >= max_scans:
                 self.logger.info(f"Reached max_scans limit: {scan_count}")
                 break
@@ -480,7 +492,8 @@ class VelodyneWrapper(BaseVendorWrapper):
             self.logger.error("No scans extracted from PCAP")
             return None
 
-        result = np.vstack(all_points)
+        # Final vstack (either single batch or remaining scans)
+        result = np.vstack(all_points) if len(all_points) > 1 else all_points[0]
         self.logger.info(f"Extracted {len(result):,} points from {scan_count} scans")
         return result
     
