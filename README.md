@@ -1,6 +1,6 @@
 # LiDAR Converter
 
-A Python library for automatically converting raw LiDAR sensor data (PCAP format) from various manufacturers into standardized LAS/LAZ formats. The system detects which sensor produced the data, selects the appropriate SDK or library, and performs conversion to ensure compatibility with major geospatial and point cloud tools.
+A vendor-agnostic LiDAR data conversion system that automatically identifies the sensor manufacturer from raw PCAP files and converts the data into standard point cloud formats. The system derives the vendor from six packet-level signals using a weighted scoring mechanism — no manual configuration or prior knowledge of the source sensor is required. Output is written to LAS, LAZ, PCD, BIN (KITTI), PLY, or CSV with a single CLI command.
 
 ## Features
 
@@ -39,6 +39,7 @@ A Python library for automatically converting raw LiDAR sensor data (PCAP format
 | **LAZ** | ✅ | ✅ | ✅ | ✅ | Compressed LAS format | Storage optimization, archival |
 | **PCD** | ✅ | ✅ | ✅ | ✅ | Point Cloud Data (PCL format) | Robotics, ROS, PCL tools |
 | **BIN** | ✅ | ✅ | ✅ | ✅ | Binary format (KITTI standard) | Machine learning, autonomous driving |
+| **PLY** | ✅ | ✅ | ✅ | ✅ | Polygon File Format | 3D modelling, mesh tools, general exchange |
 | **CSV** | ✅ | ✅ | ✅ | ✅ | Comma-separated values | Data analysis, spreadsheets, custom processing |
 
 **Legend:**
@@ -322,11 +323,14 @@ lidar-converter test sample.pcap
 
 ## Contributing
 
+Contributions are welcome, particularly for new vendor support or additional output formats. To contribute:
+
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Commit your changes with a descriptive message
+4. Push to the branch and open a Pull Request
+
+For vendor additions, the `base_wrapper.py` interface defines the methods a new wrapper must implement. See `Wrappers/README.md` for details.
 
 ## License
 
@@ -334,20 +338,23 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- [Ouster SDK](https://github.com/ouster-lidar/ouster-sdk) for LiDAR data processing
-- [LASpy](https://github.com/laspy/laspy) for LAS file handling
-- [CloudCompare](https://www.cloudcompare.org/) for point cloud visualization
+- [Ouster SDK](https://github.com/ouster-lidar/ouster-sdk) for Ouster PCAP decoding and point cloud extraction
+- [velodyne-decoder](https://github.com/valgur/velodyne-decoder) for Velodyne PCAP parsing
+- [dpkt](https://github.com/kbandla/dpkt) for packet-level parsing of Hesai and Livox captures
+- [LASpy](https://github.com/laspy/laspy) for LAS/LAZ file writing
+- [CloudCompare](https://www.cloudcompare.org/) for point cloud visualisation and output validation
+- [PDAL](https://pdal.io/) for downstream processing compatibility reference
 
 ## Vendor Detection Methods
 
 The system uses multiple detection methods with weighted confidence scoring:
 
-- **UDP Port Detection** (35% weight): Analyzes destination ports (Ouster: 7502/7503, Velodyne/Hesai: 2368/2369, Livox: 57000)
-- **Packet Structure** (30% weight): Checks magic bytes in UDP payload (Ouster: 0x0001, Velodyne: 0xFFEE, Hesai: 0xEEFF)
-- **Magic Bytes** (30% weight): File header signatures
-- **Companion Files** (25% weight): Required metadata files (e.g., Ouster JSON)
-- **Packet Size** (20% weight): UDP payload size patterns (Velodyne: 1206 bytes, Hesai: 861 bytes)
-- **File Extension** (5% weight): File extension hints
+- **UDP Port Detection** (weight: 3.5): Analyzes destination ports — Ouster: 7502/7503, Velodyne: 2368, Hesai: 2368 (shared with Velodyne, resolved by other signals), Livox: 57000
+- **Packet Structure** (weight: 3.0): Checks structural signatures in UDP payload (Ouster: 0x0001, Velodyne: 0xFFEE, Hesai: 0xEEFF)
+- **Magic Bytes** (weight: 3.0): File-level header byte signatures
+- **Companion Files** (weight: 2.5): Presence of required metadata files (e.g., Ouster JSON)
+- **Packet Size** (weight: 2.0): UDP payload size patterns — Velodyne: exactly 1206 bytes, Hesai: 1000–1300 bytes range. Note: Velodyne's 1206 bytes falls within Hesai's range, so this signal alone is insufficient for this vendor pair
+- **File Extension** (weight: 0.5): File extension hints (.lvx2 for Livox, .pcap for others)
 
 Minimum confidence threshold: 14% for positive detection.
 
@@ -361,7 +368,7 @@ Minimum confidence threshold: 14% for positive detection.
 - [x] ~~Enable LAZ compression for all vendors (lazrs)~~
 - [ ] Add RoboSense sensor support (RS-LiDAR-M1, RS-Ruby, RS-Helios)
 - [ ] Add binary PCD format support
-- [ ] Add E57 and PLY format support
+- [ ] Add E57 format support
 - [ ] Create Docker container
 - [ ] Add CI/CD pipeline (optional)
 - [ ] Performance optimizations (parallel processing)
