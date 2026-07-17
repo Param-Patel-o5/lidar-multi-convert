@@ -39,7 +39,6 @@ A vendor-agnostic LiDAR data conversion system that automatically identifies the
 | **LAZ** | ✅ | ✅ | ✅ | ✅ | Compressed LAS format | Storage optimization, archival |
 | **PCD** | ✅ | ✅ | ✅ | ✅ | Point Cloud Data (PCL format) | Robotics, ROS, PCL tools |
 | **BIN** | ✅ | ✅ | ✅ | ✅ | Binary format (KITTI standard) | Machine learning, autonomous driving |
-| **PLY** | ✅ | ✅ | ✅ | ✅ | Polygon File Format | 3D modelling, mesh tools, general exchange |
 | **CSV** | ✅ | ✅ | ✅ | ✅ | Comma-separated values | Data analysis, spreadsheets, custom processing |
 
 **Legend:**
